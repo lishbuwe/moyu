@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e0e12">
+<title>墨游</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;700&family=Noto+Sans+SC:wght@300;400&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+:root {
+  --bg:    #0e0e12;
+  --bg2:   #14141c;
+  --bg3:   #1c1c28;
+  --border:#282838;
+  --bord2: #38384a;
+  --text:  #e2d9cc;
+  --text2: #8c8298;
+  --text3: #4e4858;
+  --gold:  #c4a050;
+  --gold2: #deb86e;
+  --red:   #c45858;
+  --green: #58a878;
+  --tab-h: 56px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --hdr-h: 50px;
+}
+
+html,body { height:100%; background:var(--bg); color:var(--text); font-family:'Noto Serif SC',serif; overflow:hidden; }
+
+#app { height:100%; display:flex; flex-direction:column; max-width:480px; margin:0 auto; position:relative; }
+
+/* PAGES */
+.page { display:none; flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; padding-bottom:calc(var(--tab-h) + var(--safe-b) + 16px); }
+.page.active { display:flex; flex-direction:column; }
+#page-game { padding-bottom:0; }
+
+/* TAB BAR */
+#tab-bar { height:calc(var(--tab-h) + var(--safe-b)); background:var(--bg2); border-top:1px solid var(--border); display:flex; align-items:flex-start; padding-top:4px; flex-shrink:0; position:relative; z-index:100; }
+.tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 0; cursor:pointer; opacity:.4; transition:opacity .2s; }
+.tab.active { opacity:1; }
+.tab-icon { font-size:20px; line-height:1; }
+.tab-label { font-size:10px; font-family:'Noto Sans SC',sans-serif; color:var(--text2); letter-spacing:.5px; }
+.tab.active .tab-label { color:var(--gold); }
+
+/* PAGE HEADER */
+.page-header { padding:20px 20px 12px; display:flex; align-items:baseline; justify-content:space-between; }
+.page-title { font-size:22px; font-weight:600; letter-spacing:2px; }
+.page-subtitle { font-size:12px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+.section-title { font-size:11px; letter-spacing:3px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; padding:16px 0 10px; border-bottom:1px solid var(--border); margin-bottom:14px; }
+
+/* HISTORY */
+.new-game-btn { display:flex; align-items:center; gap:8px; margin:0 20px 20px; padding:14px 20px; background:linear-gradient(135deg,#1a1a26,#222232); border:1px dashed var(--bord2); border-radius:12px; cursor:pointer; color:var(--gold); font-family:'Noto Serif SC',serif; font-size:14px; letter-spacing:1px; transition:background .2s; }
+.new-game-btn:active { background:var(--bg3); }
+.game-list { padding:0 20px; display:flex; flex-direction:column; gap:12px; }
+.game-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:16px; cursor:pointer; display:flex; align-items:center; gap:14px; transition:border-color .15s; }
+.game-card:active { background:var(--bg3); border-color:var(--bord2); }
+.game-emoji { font-size:28px; flex-shrink:0; }
+.game-info { flex:1; min-width:0; }
+.game-name { font-size:15px; font-weight:500; letter-spacing:1px; margin-bottom:4px; }
+.game-meta { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; margin-bottom:6px; }
+.game-tags { display:flex; flex-wrap:wrap; gap:4px; }
+.game-tag { font-size:10px; padding:2px 7px; border-radius:20px; background:var(--bg3); color:var(--text2); font-family:'Noto Sans SC',sans-serif; }
+.game-arrow { color:var(--text3); font-size:18px; }
+
+/* GAME PAGE */
+#game-header { height:var(--hdr-h); display:flex; align-items:center; justify-content:space-between; padding:0 16px; background:var(--bg); border-bottom:1px solid var(--border); flex-shrink:0; }
+#game-world-name { font-size:13px; color:var(--text2); letter-spacing:2px; font-family:'Noto Sans SC',sans-serif; }
+#game-chapter { font-size:12px; color:var(--gold); font-family:'Noto Sans SC',sans-serif; }
+
+#narrative-area { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:20px 20px 12px; display:flex; flex-direction:column; gap:16px; }
+
+.narrative-block { animation:fadeUp .4s ease; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+.narrative-text { font-size:15px; line-height:2; letter-spacing:.5px; color:var(--text); text-indent:2em; }
+.narrative-action { font-size:13px; color:var(--text2); font-style:italic; text-align:right; font-family:'Noto Sans SC',sans-serif; border-right:2px solid var(--gold); padding-right:10px; }
+
+.check-result { background:var(--bg2); border-radius:8px; padding:12px 14px; border-left:3px solid var(--bord2); }
+.check-result.success { border-left-color:var(--green); }
+.check-result.fail { border-left-color:var(--red); }
+.check-label { font-size:11px; font-family:'Noto Sans SC',sans-serif; margin-bottom:6px; color:var(--text2); }
+.check-label.success { color:var(--green); }
+.check-label.fail { color:var(--red); }
+
+/* DICE */
+.check-overlay { position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:999; animation:fadeUp .2s ease; }
+.dice-wrap { display:flex; flex-direction:column; align-items:center; gap:24px; }
+.dice { width:88px; height:88px; border:2px solid var(--gold); border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:40px; animation:diceRoll .55s ease; background:var(--bg2); box-shadow:0 0 30px rgba(196,160,80,.2); }
+@keyframes diceRoll { 0%{transform:rotate(0) scale(.4);opacity:0} 60%{transform:rotate(200deg) scale(1.15)} 100%{transform:rotate(360deg) scale(1);opacity:1} }
+.check-info { text-align:center; font-family:'Noto Sans SC',sans-serif; }
+.ci-stat { font-size:13px; color:var(--text2); margin-bottom:6px; }
+.ci-score { font-size:38px; font-weight:700; letter-spacing:2px; }
+.ci-score.success { color:var(--green); }
+.ci-score.fail { color:var(--red); }
+.ci-vs { font-size:12px; color:var(--text3); margin-top:4px; }
+.ci-verdict { font-size:20px; margin-top:14px; font-weight:600; letter-spacing:5px; }
+.ci-verdict.success { color:var(--green); }
+.ci-verdict.fail { color:var(--red); }
+
+/* OPTIONS */
+#option-area { padding:12px 16px; background:var(--bg); border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; padding-bottom:calc(12px + var(--safe-b)); flex-shrink:0; }
+.options-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.option-btn { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--text); font-family:'Noto Serif SC',serif; font-size:13px; line-height:1.5; cursor:pointer; text-align:left; transition:all .15s; letter-spacing:.3px; width:100%; }
+.option-btn:active { background:var(--bg3); border-color:var(--gold); color:var(--gold2); }
+.free-input-row { display:flex; gap:8px; }
+#free-input { flex:1; background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:10px 14px; color:var(--text); font-family:'Noto Serif SC',serif; font-size:13px; outline:none; -webkit-appearance:none; resize:none; min-height:42px; max-height:100px; }
+#free-input:focus { border-color:var(--bord2); }
+#free-input::placeholder { color:var(--text3); }
+#send-btn { background:var(--bg3); border:1px solid var(--bord2); border-radius:10px; width:42px; height:42px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--gold); font-size:18px; flex-shrink:0; transition:background .15s; }
+#send-btn:active { background:var(--border); }
+
+/* LOADING */
+.loading-dots { display:flex; align-items:center; gap:5px; padding:16px 0; }
+.loading-dots span { width:6px; height:6px; border-radius:50%; background:var(--text3); animation:dotBounce 1.2s infinite; }
+.loading-dots span:nth-child(2){animation-delay:.2s}
+.loading-dots span:nth-child(3){animation-delay:.4s}
+@keyframes dotBounce { 0%,80%,100%{transform:translateY(0);opacity:.4} 40%{transform:translateY(-6px);opacity:1} }
+
+/* CHARACTER PAGE */
+.char-section { padding:0 20px 16px; }
+.npc-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
+.npc-header { display:flex; align-items:baseline; gap:8px; margin-bottom:10px; }
+.npc-name { font-size:16px; font-weight:500; letter-spacing:1px; }
+.npc-desc { font-size:12px; color:var(--text2); font-family:'Noto Sans SC',sans-serif; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.affection-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.aff-label { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; white-space:nowrap; }
+.aff-bar { flex:1; height:4px; background:var(--bg3); border-radius:2px; overflow:hidden; }
+.aff-fill { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--red),var(--gold),var(--gold2)); transition:width .5s ease; }
+.aff-num { font-size:12px; color:var(--gold); font-family:'Noto Sans SC',sans-serif; white-space:nowrap; }
+.event-tags { display:flex; flex-wrap:wrap; gap:4px; }
+.event-tag { font-size:10px; padding:2px 7px; border-radius:20px; background:var(--bg3); color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+
+.player-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:12px; }
+.player-name-row { display:flex; align-items:baseline; gap:8px; margin-bottom:14px; }
+.player-name { font-size:18px; font-weight:500; letter-spacing:2px; }
+.player-bg-text { font-size:12px; color:var(--text2); font-family:'Noto Sans SC',sans-serif; }
+.stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+.stat-item { display:flex; flex-direction:column; gap:4px; }
+.s-name { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; letter-spacing:1px; }
+.s-bar-row { display:flex; align-items:center; gap:6px; }
+.s-bar { flex:1; height:3px; background:var(--bg3); border-radius:2px; overflow:hidden; }
+.s-fill { height:100%; border-radius:2px; background:var(--gold); transition:width .5s; }
+.s-val { font-size:13px; color:var(--text); font-family:'Noto Sans SC',sans-serif; }
+.player-tags { display:flex; flex-wrap:wrap; gap:5px; }
+.p-tag { font-size:11px; padding:3px 9px; border-radius:20px; background:rgba(196,160,80,.1); border:1px solid rgba(196,160,80,.3); color:var(--gold); font-family:'Noto Sans SC',sans-serif; }
+
+/* FRAGMENT PAGE */
+.frag-toolbar { padding:0 20px 12px; display:flex; align-items:center; gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.frag-toolbar::-webkit-scrollbar { display:none; }
+.frag-filter { padding:6px 14px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--text2); font-family:'Noto Sans SC',sans-serif; font-size:12px; white-space:nowrap; cursor:pointer; transition:all .15s; flex-shrink:0; }
+.frag-filter.active { background:var(--bg3); border-color:var(--gold); color:var(--gold); }
+.gen-frag-btn { display:flex; align-items:center; gap:6px; margin:0 20px 14px; padding:12px 16px; background:linear-gradient(135deg,rgba(196,160,80,.1),rgba(196,160,80,.05)); border:1px solid rgba(196,160,80,.3); border-radius:10px; cursor:pointer; color:var(--gold); font-family:'Noto Sans SC',sans-serif; font-size:13px; letter-spacing:1px; }
+.gen-frag-btn:active { background:rgba(196,160,80,.15); }
+.fragment-list { padding:0 20px; display:flex; flex-direction:column; gap:12px; }
+.fragment-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+.frag-header { padding:10px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); }
+.frag-meta { display:flex; align-items:center; gap:8px; }
+.frag-npc { font-size:13px; font-weight:500; letter-spacing:1px; }
+.frag-type-badge { font-size:10px; padding:2px 7px; border-radius:20px; background:var(--bg3); color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+.frag-chapter-ref { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+.frag-content { padding:14px; font-size:13px; line-height:1.9; color:var(--text2); letter-spacing:.3px; white-space:pre-line; }
+
+/* SETTINGS PAGE */
+.settings-section { padding:0 20px 20px; }
+.setting-item { padding:14px 0; border-bottom:1px solid var(--border); }
+.setting-item:last-child { border-bottom:none; }
+.setting-label { font-size:12px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; letter-spacing:1px; margin-bottom:8px; }
+.provider-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+.provider-btn { padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); font-family:'Noto Sans SC',sans-serif; font-size:12px; text-align:center; cursor:pointer; transition:all .15s; }
+.provider-btn.active { border-color:var(--gold); color:var(--gold); background:rgba(196,160,80,.08); }
+.setting-input { width:100%; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text); font-family:'Noto Sans SC',sans-serif; font-size:13px; outline:none; -webkit-appearance:none; }
+.setting-input:focus { border-color:var(--bord2); }
+.model-select { width:100%; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text); font-family:'Noto Sans SC',sans-serif; font-size:13px; outline:none; -webkit-appearance:none; appearance:none; }
+
+/* MODAL */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.72); display:flex; flex-direction:column; justify-content:flex-end; z-index:500; animation:fadeUp .2s ease; }
+.modal-sheet { background:var(--bg2); border-radius:20px 20px 0 0; border-top:1px solid var(--border); max-height:92vh; overflow-y:auto; padding-bottom:calc(20px + var(--safe-b)); }
+.modal-handle { width:36px; height:4px; background:var(--bord2); border-radius:2px; margin:12px auto 16px; }
+.modal-title { font-size:17px; font-weight:500; letter-spacing:2px; padding:0 20px 16px; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.modal-body { padding:0 20px; }
+.form-group { margin-bottom:16px; }
+.form-label { font-size:11px; color:var(--text3); letter-spacing:2px; font-family:'Noto Sans SC',sans-serif; margin-bottom:8px; display:block; }
+.form-input { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:12px 14px; color:var(--text); font-family:'Noto Serif SC',serif; font-size:14px; outline:none; -webkit-appearance:none; }
+.form-input:focus { border-color:var(--bord2); }
+.form-textarea { resize:none; min-height:80px; line-height:1.7; }
+.hint-text { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; margin-top:6px; line-height:1.6; }
+.stats-builder { display:flex; flex-direction:column; gap:8px; margin-bottom:8px; }
+.stat-row { display:flex; gap:8px; align-items:center; }
+.stat-name-inp { flex:1; }
+.stat-val-inp { width:70px; text-align:center; }
+.rm-btn { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text3); cursor:pointer; font-size:16px; flex-shrink:0; }
+.add-btn { padding:8px; border-radius:8px; border:1px dashed var(--border); background:transparent; color:var(--text3); font-family:'Noto Sans SC',sans-serif; font-size:12px; cursor:pointer; text-align:center; width:100%; }
+.npc-builder { display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
+.npc-item { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:12px; }
+.npc-item-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.npc-item-name { font-size:14px; letter-spacing:1px; }
+.wizard-steps { display:flex; gap:6px; padding:0 20px 16px; justify-content:center; }
+.wz-step { width:20px; height:3px; border-radius:2px; background:var(--bord2); transition:background .3s; }
+.wz-step.done { background:var(--gold); }
+.wizard-nav { display:flex; gap:8px; padding:16px 0 0; }
+.btn-secondary { flex:1; padding:13px; border-radius:10px; border:1px solid var(--border); background:transparent; color:var(--text2); font-family:'Noto Serif SC',serif; font-size:14px; cursor:pointer; text-align:center; }
+.btn-primary { flex:2; padding:13px; border-radius:10px; border:none; background:linear-gradient(135deg,#c4a050,#deb86e); color:#0e0e12; font-family:'Noto Serif SC',serif; font-size:14px; font-weight:600; cursor:pointer; letter-spacing:1px; text-align:center; }
+
+/* FRAG GEN */
+.frag-type-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+.frag-type-btn { padding:12px 10px; border-radius:10px; border:1px solid var(--border); background:var(--bg3); color:var(--text2); font-family:'Noto Serif SC',serif; font-size:13px; text-align:center; cursor:pointer; transition:all .15s; }
+.frag-type-btn.active { border-color:var(--gold); color:var(--gold); background:rgba(196,160,80,.08); }
+.npc-sel-grid { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.npc-sel-btn { padding:7px 14px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--text2); font-family:'Noto Serif SC',serif; font-size:13px; cursor:pointer; transition:all .15s; }
+.npc-sel-btn.active { border-color:var(--gold); color:var(--gold); }
+
+/* UTILS */
+.empty-state { padding:40px 20px; text-align:center; color:var(--text3); font-family:'Noto Sans SC',sans-serif; font-size:13px; line-height:2; }
+.empty-icon { font-size:32px; margin-bottom:10px; }
+.toast { position:fixed; top:calc(20px + env(safe-area-inset-top,0px)); left:50%; transform:translateX(-50%); background:var(--bg3); border:1px solid var(--bord2); border-radius:8px; padding:10px 20px; font-size:13px; font-family:'Noto Sans SC',sans-serif; color:var(--text); z-index:9999; white-space:nowrap; animation:toastIn .3s ease, toastOut .3s ease 2s forwards; }
+@keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(-10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+@keyframes toastOut { to{opacity:0;transform:translateX(-50%) translateY(-10px)} }
+*::-webkit-scrollbar { display:none; }
+* { scrollbar-width:none; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HISTORY -->
+  <div id="page-history" class="page active">
+    <div class="page-header">
+      <span class="page-title">墨游</span>
+      <span class="page-subtitle" id="hist-sub">0 个故事</span>
+    </div>
+    <div class="new-game-btn" onclick="openWizard()"><span>＋</span><span>开始新的故事</span></div>
+    <div class="game-list" id="game-list"></div>
+  </div>
+
+  <!-- GAME -->
+  <div id="page-game" class="page">
+    <div id="game-header">
+      <span id="game-world-name">—</span>
+      <span id="game-chapter">序章</span>
+    </div>
+    <div id="narrative-area">
+      <div class="empty-state"><div class="empty-icon">📖</div>故事从这里开始……</div>
+    </div>
+    <div id="option-area">
+      <div class="options-grid" id="options-grid"></div>
+      <div class="free-input-row">
+        <textarea id="free-input" placeholder="自由行动……" rows="1"></textarea>
+        <div id="send-btn" onclick="sendFreeInput()">↑</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARACTER -->
+  <div id="page-character" class="page">
+    <div class="page-header"><span class="page-title">角色</span></div>
+    <div class="char-section">
+      <div class="section-title">我的状态</div>
+      <div id="player-panel"></div>
+      <div class="section-title">登场人物</div>
+      <div id="npc-list"></div>
+    </div>
+  </div>
+
+  <!-- FRAGMENT -->
+  <div id="page-fragment" class="page">
+    <div class="page-header"><span class="page-title">碎片集</span></div>
+    <div class="gen-frag-btn" onclick="openFragGen()">✦ 生成新碎片</div>
+    <div class="frag-toolbar" id="frag-filters"></div>
+    <div class="fragment-list" id="fragment-list"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="page-settings" class="page">
+    <div class="page-header"><span class="page-title">设置</span></div>
+    <div class="settings-section">
+      <div class="section-title">AI 服务商</div>
+      <div class="setting-item">
+        <div class="provider-grid" id="provider-grid">
+          <div class="provider-btn active" data-p="deepseek" onclick="selectProvider('deepseek')">DeepSeek</div>
+          <div class="provider-btn" data-p="claude" onclick="selectProvider('claude')">Claude</div>
+          <div class="provider-btn" data-p="openai" onclick="selectProvider('openai')">GPT</div>
+          <div class="provider-btn" data-p="gemini" onclick="selectProvider('gemini')">Gemini</div>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">API KEY</div>
+        <input class="setting-input" type="password" id="api-key-input" placeholder="输入 API Key" onchange="saveApiKey()">
+        <div class="hint-text" id="key-hint"></div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">模型</div>
+        <select class="model-select" id="model-select" onchange="saveModel()"></select>
+      </div>
+      <div class="section-title" style="margin-top:16px">当前游戏管理</div>
+      <div class="setting-item">
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <div class="btn-secondary" style="flex:1;cursor:pointer;font-family:'Noto Sans SC',sans-serif;font-size:13px" onclick="completeGame()">标记完结</div>
+          <div class="btn-secondary" style="flex:1;cursor:pointer;font-family:'Noto Sans SC',sans-serif;font-size:13px;color:var(--red);border-color:var(--red)" onclick="deleteCurrentGame()">删除存档</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB BAR -->
+  <div id="tab-bar">
+    <div class="tab active" onclick="switchTab('history')" data-tab="history">
+      <span class="tab-icon">📚</span><span class="tab-label">故事</span>
+    </div>
+    <div class="tab" onclick="switchTab('game')" data-tab="game">
+      <span class="tab-icon">📖</span><span class="tab-label">游玩</span>
+    </div>
+    <div class="tab" onclick="switchTab('character')" data-tab="character">
+      <span class="tab-icon">👤</span><span class="tab-label">角色</span>
+    </div>
+    <div class="tab" onclick="switchTab('fragment')" data-tab="fragment">
+      <span class="tab-icon">🎴</span><span class="tab-label">碎片集</span>
+    </div>
+    <div class="tab" onclick="switchTab('settings')" data-tab="settings">
+      <span class="tab-icon">⚙️</span><span class="tab-label">设置</span>
+    </div>
+  </div>
+</div>
+
+<!-- WIZARD MODAL -->
+<div id="wizard-modal" class="modal-overlay" style="display:none" onclick="wzBgClick(event)">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="wizard-steps" id="wz-steps"></div>
+    <div id="wz-body"></div>
+  </div>
+</div>
+
+<!-- FRAG GEN MODAL -->
+<div id="frag-modal" class="modal-overlay" style="display:none" onclick="fgBgClick(event)">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title">生成碎片</div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">选择角色</label>
+        <div class="npc-sel-grid" id="fg-npc-sel"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">碎片类型</label>
+        <div class="frag-type-grid">
+          <div class="frag-type-btn active" data-type="diary"      onclick="selFgType('diary')">📔 角色日记</div>
+          <div class="frag-type-btn"        data-type="weibo"      onclick="selFgType('weibo')">📱 朋友圈</div>
+          <div class="frag-type-btn"        data-type="forum"      onclick="selFgType('forum')">💬 论坛帖</div>
+          <div class="frag-type-btn"        data-type="memory"     onclick="selFgType('memory')">✦ 记忆碎片</div>
+          <div class="frag-type-btn"        data-type="gossip"     onclick="selFgType('gossip')">🗣 NPC八卦</div>
+          <div class="frag-type-btn"        data-type="their_view" onclick="selFgType('their_view')">👁 TA眼中的我</div>
+        </div>
+      </div>
+      <div class="wizard-nav">
+        <div class="btn-secondary" onclick="closeFgModal()">取消</div>
+        <div class="btn-primary" onclick="generateFragment()">生成</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CHECK OVERLAY -->
+<div id="check-overlay" class="check-overlay" style="display:none">
+  <div class="dice-wrap">
+    <div class="dice">🎲</div>
+    <div class="check-info">
+      <div class="ci-stat" id="ci-stat">—</div>
+      <div class="ci-score" id="ci-score">—</div>
+      <div class="ci-vs"    id="ci-vs">—</div>
+      <div class="ci-verdict" id="ci-verdict">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONSTANTS
+// ─────────────────────────────────────────────
+const SK = 'moyu_v1';
+
+const MODELS = {
+  deepseek: ['deepseek-chat','deepseek-reasoner'],
+  claude:   ['claude-sonnet-4-6','claude-opus-4-6'],
+  openai:   ['gpt-4o','gpt-4.1','gpt-4o-mini'],
+  gemini:   ['gemini-2.0-flash','gemini-1.5-pro']
+};
+
+const KEY_HINTS = {
+  deepseek: '从 platform.deepseek.com 获取',
+  claude:   '从 console.anthropic.com 获取',
+  openai:   '从 platform.openai.com 获取',
+  gemini:   '从 aistudio.google.com 获取'
+};
+
+const FRAG_LABELS = {
+  diary:'📔 日记', weibo:'📱 朋友圈', forum:'💬 论坛帖',
+  memory:'✦ 记忆碎片', gossip:'🗣 八卦', their_view:'👁 TA眼中的我'
+};
+
+const EMOJIS = ['🎭','⚔️','🌸','🐉','🌙','🏮','🗡️','💫','🌊','🔮','🎪','🏔️'];
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let S = {
+  currentId: null,
+  settings: {
+    provider: 'deepseek',
+    keys: {deepseek:'',claude:'',openai:'',gemini:''},
+    models: {deepseek:'deepseek-chat',claude:'claude-sonnet-4-6',openai:'gpt-4o',gemini:'gemini-2.0-flash'}
+  },
+  games: {}
+};
+
+function load() {
+  try { const d = localStorage.getItem(SK); if(d) S = {...S,...JSON.parse(d)}; } catch(e){}
+}
+function save() {
+  try { localStorage.setItem(SK, JSON.stringify(S)); } catch(e){}
+}
+function uid() { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
+function ago(ts) {
+  const d = Date.now()-new Date(ts).getTime();
+  if(d<60000)return'刚刚';
+  if(d<3600000)return Math.floor(d/60000)+'分钟前';
+  if(d<86400000)return Math.floor(d/3600000)+'小时前';
+  return Math.floor(d/86400000)+'天前';
+}
+function cg() { return S.currentId ? S.games[S.currentId] : null; }
+
+// ─────────────────────────────────────────────
+//  NAVIGATION
+// ─────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+tab).classList.add('active');
+  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+  if(tab==='history')  renderHistory();
+  if(tab==='character')renderCharacter();
+  if(tab==='fragment') renderFragments();
+  if(tab==='settings') renderSettings();
+  if(tab==='game')     setTimeout(scrollBottom,80);
+}
+
+// ─────────────────────────────────────────────
+//  HISTORY
+// ─────────────────────────────────────────────
+function renderHistory() {
+  const games = Object.values(S.games).sort((a,b)=>new Date(b.lastPlayedAt)-new Date(a.lastPlayedAt));
+  document.getElementById('hist-sub').textContent = games.length+' 个故事';
+  const el = document.getElementById('game-list');
+  if(!games.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">✦</div>还没有故事<br>开始第一个吧</div>`;
+    return;
+  }
+  el.innerHTML=games.map(g=>`
+    <div class="game-card" onclick="loadGame('${g.id}')">
+      <div class="game-emoji">${g.emoji||'🎭'}</div>
+      <div class="game-info">
+        <div class="game-name">${g.name}${g.completed?'<span style="font-size:11px;color:var(--text3)"> · 完结</span>':''}</div>
+        <div class="game-meta">${ago(g.lastPlayedAt)} · ${g.chapter}</div>
+        <div class="game-tags">${(g.npcs||[]).slice(0,3).map(n=>`<span class="game-tag">${n.name}</span>`).join('')}</div>
+      </div>
+      <div class="game-arrow">›</div>
+    </div>
+  `).join('');
+}
+
+function loadGame(id) {
+  S.currentId = id;
+  S.games[id].lastPlayedAt = new Date().toISOString();
+  save();
+  switchTab('game');
+  renderGamePage();
+}
+
+// ─────────────────────────────────────────────
+//  GAME PAGE
+// ─────────────────────────────────────────────
+function renderGamePage() {
+  const g = cg(); if(!g) return;
+  document.getElementById('game-world-name').textContent = g.name;
+  document.getElementById('game-chapter').textContent = g.chapter;
+  const area = document.getElementById('narrative-area');
+  if(!g.narrativeHistory||g.narrativeHistory.length===0){
+    area.innerHTML=`<div class="empty-state"><div class="empty-icon">📖</div>正在生成开场……</div>`;
+    renderOptions([]);
+    startGame();
+    return;
+  }
+  renderNarrativeHistory();
+  renderOptions(g._opts||[]);
+}
+
+function renderNarrativeHistory() {
+  const g=cg(); if(!g) return;
+  const area=document.getElementById('narrative-area');
+  area.innerHTML=(g.narrativeHistory||[]).map(b=>{
+    if(b.type==='narrative')
+      return`<div class="narrative-block"><div class="narrative-text">${esc(b.content).replace(/\n/g,'<br>')}</div></div>`;
+    if(b.type==='action')
+      return`<div class="narrative-block"><div class="narrative-action">「${esc(b.content)}」</div></div>`;
+    if(b.type==='check')
+      return`<div class="narrative-block"><div class="check-result ${b.success?'success':'fail'}">
+        <div class="check-label ${b.success?'success':'fail'}">${b.success?'✓ 判定成功':'✗ 判定失败'} · ${b.stat}(${b.score}) vs 难度${b.diff}</div>
+        <div class="narrative-text" style="text-indent:0">${esc(b.content).replace(/\n/g,'<br>')}</div>
+      </div></div>`;
+    return'';
+  }).join('');
+  scrollBottom();
+}
+
+function scrollBottom() {
+  const a=document.getElementById('narrative-area');
+  a.scrollTop=a.scrollHeight;
+}
+
+function renderOptions(opts) {
+  const grid=document.getElementById('options-grid');
+  grid.innerHTML=(opts||[]).map((o,i)=>`<button class="option-btn" onclick="chooseOpt(${i})">${esc(o)}</button>`).join('');
+}
+
+function showLoading() {
+  const area=document.getElementById('narrative-area');
+  const d=document.createElement('div');
+  d.className='narrative-block'; d.id='ld-block';
+  d.innerHTML=`<div class="loading-dots"><span></span><span></span><span></span></div>`;
+  area.appendChild(d); scrollBottom(); renderOptions([]);
+}
+function hideLoading() { const e=document.getElementById('ld-block'); if(e)e.remove(); }
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─────────────────────────────────────────────
+//  GAME LOGIC
+// ─────────────────────────────────────────────
+async function startGame() {
+  const g=cg(); if(!g) return;
+  showLoading();
+  try {
+    const sys=buildSys(g);
+    const userMsg='请开始故事，生成引人入胜的开场白，并提供初始选项。';
+    g.messages=[];
+    const raw=await callAI(sys,[{role:'user',content:userMsg}]);
+    const p=parseRes(raw);
+    g.messages.push({role:'user',content:userMsg},{role:'assistant',content:raw});
+    applyChanges(g,p.sc);
+    g.narrativeHistory=[{type:'narrative',content:p.narrative}];
+    g._opts=p.options;
+    hideLoading(); save(); renderNarrativeHistory(); renderOptions(p.options);
+    document.getElementById('game-chapter').textContent=g.chapter;
+  } catch(e){ hideLoading(); toast('API 错误: '+e.message); }
+}
+
+async function chooseOpt(i) {
+  const g=cg(); if(!g||!g._opts) return;
+  await doAction(g._opts[i]);
+}
+
+async function sendFreeInput() {
+  const inp=document.getElementById('free-input');
+  const t=inp.value.trim(); if(!t) return;
+  inp.value=''; inp.style.height='auto';
+  await doAction(t);
+}
+
+async function doAction(action) {
+  const g=cg(); if(!g) return;
+  g.narrativeHistory.push({type:'action',content:action});
+  renderNarrativeHistory(); showLoading();
+  g.messages.push({role:'user',content:action});
+  const sys=buildSys(g);
+  try {
+    const raw=await callAI(sys,g.messages);
+    const p=parseRes(raw);
+    g.messages.push({role:'assistant',content:raw});
+
+    if(p.check){
+      hideLoading();
+      const cr=await doCheck(p.check,g);
+      const followUp=cr.success
+        ?`（属性检定结果：${p.check.required}综合得分${cr.score}，难度${p.check.difficulty}，成功！）请描述成功的结果，继续故事并给出新选项。`
+        :`（属性检定结果：${p.check.required}综合得分${cr.score}，难度${p.check.difficulty}，失败！）请描述失败的后果，继续故事并给出新选项。`;
+      showLoading();
+      g.messages.push({role:'user',content:followUp});
+      const raw2=await callAI(sys,g.messages);
+      const p2=parseRes(raw2);
+      g.messages.push({role:'assistant',content:raw2});
+      applyChanges(g,p2.sc);
+      hideLoading();
+      g.narrativeHistory.push({type:'check',success:cr.success,stat:p.check.required,score:cr.score,diff:p.check.difficulty,content:p2.narrative});
+      g._opts=p2.options;
+    } else {
+      applyChanges(g,p.sc);
+      hideLoading();
+      g.narrativeHistory.push({type:'narrative',content:p.narrative});
+      g._opts=p.options;
+    }
+
+    if(g.messages.length>44) g.messages=g.messages.slice(g.messages.length-44);
+    g.lastPlayedAt=new Date().toISOString();
+    save(); renderNarrativeHistory(); renderOptions(g._opts||[]);
+    document.getElementById('game-chapter').textContent=g.chapter;
+  } catch(e){ hideLoading(); toast('AI 错误: '+e.message); }
+}
+
+// ─────────────────────────────────────────────
+//  CHECK / DICE
+// ─────────────────────────────────────────────
+function doCheck(check, game) {
+  return new Promise(resolve => {
+    const stat  = game.player.stats[check.required] || 50;
+    const luck  = game.player.stats['运气'] || 50;
+    const roll  = Math.round((Math.random()*30)-15);
+    const lBonus= Math.round((luck-50)*0.2);
+    const score = stat + roll + lBonus;
+    const ok    = score > check.difficulty;
+
+    const ov = document.getElementById('check-overlay');
+    document.getElementById('ci-stat').textContent = check.required+' 检定';
+    const se = document.getElementById('ci-score');
+    se.textContent = score;
+    se.className = 'ci-score '+(ok?'success':'fail');
+    document.getElementById('ci-vs').textContent = `基础${stat} ${roll>=0?'+':''}${roll} 幸运${lBonus>=0?'+':''}${lBonus}`;
+    const ve = document.getElementById('ci-verdict');
+    ve.textContent = ok ? '成　功' : '失　败';
+    ve.className = 'ci-verdict '+(ok?'success':'fail');
+    ov.style.display='flex';
+    setTimeout(()=>{ ov.style.display='none'; resolve({success:ok,score}); }, 2300);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  STATE CHANGES
+// ─────────────────────────────────────────────
+function applyChanges(game, sc) {
+  if(!sc) return;
+  if(sc.player_stats) Object.entries(sc.player_stats).forEach(([k,v])=>{
+    if(game.player.stats[k]!==undefined)
+      game.player.stats[k]=Math.min(100,Math.max(0,game.player.stats[k]+Number(v)));
+  });
+  if(sc.npc_affection) Object.entries(sc.npc_affection).forEach(([name,d])=>{
+    const n=game.npcs.find(x=>x.name===name);
+    if(n) n.affection=Math.min(100,Math.max(0,(n.affection||50)+Number(d)));
+  });
+  if(sc.npc_known_events) Object.entries(sc.npc_known_events).forEach(([name,evts])=>{
+    const n=game.npcs.find(x=>x.name===name);
+    if(n){ n.knownEvents=n.knownEvents||[]; evts.forEach(e=>{ if(!n.knownEvents.includes(e)) n.knownEvents.push(e); }); if(n.knownEvents.length>20) n.knownEvents=n.knownEvents.slice(-20); }
+  });
+  if(sc.player_tags) sc.player_tags.forEach(tag=>{
+    const t=tag.slice(1).replace(/[\[\]]/g,'');
+    if(tag.startsWith('+')){ if(!game.player.tags.includes(t)) game.player.tags.push(t); }
+    else if(tag.startsWith('-')){ game.player.tags=game.player.tags.filter(x=>x!==t); }
+  });
+  if(sc.chapter) game.chapter=sc.chapter;
+}
+
+// ─────────────────────────────────────────────
+//  SYSTEM PROMPT
+// ─────────────────────────────────────────────
+function buildSys(g) {
+  const stats=Object.entries(g.player.stats||{}).map(([k,v])=>`${k}:${v}`).join('、');
+  const tags=(g.player.tags||[]).join('、')||'无';
+  const npcs=(g.npcs||[]).map(n=>`【${n.name}】${n.description}；好感度${n.affection||50}；已知事件：${(n.knownEvents||[]).join('、')||'无'}`).join('\n');
+  return `你是一个沉浸式互动小说叙述者。
+
+【世界观】
+${g.worldSetting}
+
+【玩家角色】
+姓名：${g.player.name}　背景：${g.player.background||'未设定'}
+属性：${stats||'无'}　状态标签：${tags}
+
+【NPC】
+${npcs||'暂无'}
+
+【规则】严格以JSON格式回复，不输出任何其他内容：
+{
+  "narrative":"叙述文字（中文200-400字，沉浸感强）",
+  "options":["选项1（≤12字）","选项2（≤12字）","选项3（≤12字）"],
+  "check":null或{"required":"属性名","difficulty":数值},
+  "state_changes":{
+    "player_stats":{},"npc_affection":{},"npc_known_events":{},
+    "player_tags":[],"chapter":null或"新章节名"
+  }
+}
+check只在此行动需要属性检定时使用，difficulty范围30-90。state_changes中数值为增量。player_tags格式："+[标签]"或"-[标签]"。叙述要符合世界观，选项多样化。`;
+}
+
+// ─────────────────────────────────────────────
+//  AI CALL
+// ─────────────────────────────────────────────
+async function callAI(sys, msgs) {
+  const {provider,keys,models}=S.settings;
+  const key=keys[provider];
+  if(!key) throw new Error('请先在设置中填写 API Key');
+  const model=models[provider];
+  if(provider==='deepseek'||provider==='openai') return callOAI(provider,key,model,sys,msgs);
+  if(provider==='claude') return callClaude(key,model,sys,msgs);
+  if(provider==='gemini') return callGemini(key,model,sys,msgs);
+}
+
+async function callOAI(prov, key, model, sys, msgs) {
+  const url=prov==='deepseek'?'https://api.deepseek.com/v1/chat/completions':'https://api.openai.com/v1/chat/completions';
+  const r=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model,messages:[{role:'system',content:sys},...msgs],temperature:.85,max_tokens:1200,response_format:{type:'json_object'}})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||'HTTP '+r.status); }
+  const d=await r.json(); return d.choices[0].message.content;
+}
+
+async function callClaude(key, model, sys, msgs) {
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model,system:sys,messages:msgs,max_tokens:1200,temperature:.85})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||'HTTP '+r.status); }
+  const d=await r.json(); return d.content[0].text;
+}
+
+async function callGemini(key, model, sys, msgs) {
+  const contents=msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents,generationConfig:{temperature:.85,maxOutputTokens:1200,responseMimeType:'application/json'}})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||'HTTP '+r.status); }
+  const d=await r.json(); return d.candidates[0].content.parts[0].text;
+}
+
+function parseRes(raw) {
+  try {
+    const c=raw.replace(/```json\n?|```\n?/g,'').trim();
+    const p=JSON.parse(c);
+    return {narrative:p.narrative||'……',options:p.options||[],check:p.check||null,sc:p.state_changes||{}};
+  } catch(e) {
+    return {narrative:raw.slice(0,500),options:['继续……'],check:null,sc:{}};
+  }
+}
+
+// ─────────────────────────────────────────────
+//  CHARACTER PAGE
+// ─────────────────────────────────────────────
+function renderCharacter() {
+  const g=cg();
+  const pp=document.getElementById('player-panel');
+  const nl=document.getElementById('npc-list');
+  if(!g){
+    pp.innerHTML=`<div class="empty-state">尚未选择游戏</div>`; nl.innerHTML=''; return;
+  }
+  const statsHtml=Object.entries(g.player.stats||{}).map(([n,v])=>`
+    <div class="stat-item">
+      <div class="s-name">${n}</div>
+      <div class="s-bar-row">
+        <div class="s-bar"><div class="s-fill" style="width:${v}%"></div></div>
+        <div class="s-val">${v}</div>
+      </div>
+    </div>`).join('');
+  const tagsHtml=(g.player.tags||[]).map(t=>`<span class="p-tag">${esc(t)}</span>`).join('');
+  pp.innerHTML=`<div class="player-card">
+    <div class="player-name-row"><span class="player-name">${esc(g.player.name)}</span><span class="player-bg-text">${esc(g.player.background||'')}</span></div>
+    <div class="stats-grid">${statsHtml}</div>
+    ${tagsHtml?`<div class="player-tags">${tagsHtml}</div>`:''}
+  </div>`;
+  if(!g.npcs||!g.npcs.length){
+    nl.innerHTML=`<div class="empty-state" style="padding:20px 0">暂无角色</div>`; return;
+  }
+  nl.innerHTML=g.npcs.map(n=>`<div class="npc-card">
+    <div class="npc-header"><span class="npc-name">${esc(n.name)}</span><span class="npc-desc">${esc(n.description||'')}</span></div>
+    <div class="affection-row">
+      <span class="aff-label">好感度</span>
+      <div class="aff-bar"><div class="aff-fill" style="width:${n.affection||50}%"></div></div>
+      <span class="aff-num">${n.affection||50}</span>
+    </div>
+    ${(n.knownEvents||[]).length?`<div class="event-tags">${n.knownEvents.slice(-5).map(e=>`<span class="event-tag">${esc(e)}</span>`).join('')}</div>`:''}
+  </div>`).join('');
+}
+
+// ─────────────────────────────────────────────
+//  FRAGMENT PAGE
+// ─────────────────────────────────────────────
+let fragF='all';
+
+function renderFragments() {
+  const g=cg();
+  const fl=document.getElementById('fragment-list');
+  const fb=document.getElementById('frag-filters');
+  if(!g){ fl.innerHTML=`<div class="empty-state">尚未选择游戏</div>`; fb.innerHTML=''; return; }
+  const frags=g.fragments||[];
+  const allTypes=['all',...new Set(frags.map(f=>f.type))];
+  const typeLabels={all:'全部',...FRAG_LABELS};
+  fb.innerHTML=allTypes.map(t=>`<div class="frag-filter ${fragF===t?'active':''}" onclick="setFragF('${t}')">${typeLabels[t]||t}</div>`).join('');
+  const filtered=fragF==='all'?frags:frags.filter(f=>f.type===fragF);
+  if(!filtered.length){
+    fl.innerHTML=`<div class="empty-state"><div class="empty-icon">🎴</div>还没有碎片<br>点击「生成新碎片」开始</div>`; return;
+  }
+  fl.innerHTML=[...filtered].reverse().map(f=>`
+    <div class="fragment-card">
+      <div class="frag-header">
+        <div class="frag-meta"><span class="frag-npc">${esc(f.npcName||'')}</span><span class="frag-type-badge">${FRAG_LABELS[f.type]||f.type}</span></div>
+        <span class="frag-chapter-ref">${esc(f.chapterRef||'')}</span>
+      </div>
+      <div class="frag-content">${esc(f.content)}</div>
+    </div>`).join('');
+}
+
+function setFragF(f){ fragF=f; renderFragments(); }
+
+// ─────────────────────────────────────────────
+//  FRAGMENT GENERATION MODAL
+// ─────────────────────────────────────────────
+let fgState = {npcId:null, type:'diary'};
+
+function openFragGen() {
+  const g=cg();
+  if(!g){ toast('请先选择游戏'); return; }
+  if(!g.narrativeHistory||!g.narrativeHistory.length){ toast('先进行一些游戏再生成碎片'); return; }
+  fgState={npcId:g.npcs[0]?.id||null,type:'diary'};
+  const ns=document.getElementById('fg-npc-sel');
+  ns.innerHTML=g.npcs.map(n=>`<div class="npc-sel-btn ${fgState.npcId===n.id?'active':''}" data-id="${n.id}" onclick="selFgNpc('${n.id}')">${esc(n.name)}</div>`).join('');
+  document.querySelectorAll('.frag-type-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('[data-type="diary"]').classList.add('active');
+  document.getElementById('frag-modal').style.display='flex';
+}
+function closeFgModal(){ document.getElementById('frag-modal').style.display='none'; }
+function fgBgClick(e){ if(e.target===document.getElementById('frag-modal')) closeFgModal(); }
+function selFgNpc(id){ fgState.npcId=id; document.querySelectorAll('.npc-sel-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id)); }
+function selFgType(t){ fgState.type=t; document.querySelectorAll('.frag-type-btn').forEach(b=>b.classList.toggle('active',b.dataset.type===t)); }
+
+async function generateFragment() {
+  const g=cg(); if(!g) return;
+  const npc=g.npcs.find(n=>n.id===fgState.npcId);
+  const needNpc=['diary','weibo','memory','their_view'].includes(fgState.type);
+  if(needNpc&&!npc){ toast('请选择角色'); return; }
+  closeFgModal(); toast('生成中……');
+
+  const recentNarr=(g.narrativeHistory||[]).slice(-12).map(b=>b.content||'').join('\n');
+  const npcInfo=npc?`角色：${npc.name}，${npc.description}；好感度${npc.affection}；已知事件：${(npc.knownEvents||[]).join('、')||'无'}`:'路人视角';
+
+  const TYPE_PROMPTS={
+    diary:`以${npc?.name}的第一人称写当天日记，风格${npc?.diaryStyle||'真实内省'}。直接输出日记内容300字左右。`,
+    weibo:`以${npc?.name}口吻写一条朋友圈状态，风格${npc?.weiboStyle||'简短意有所指'}，加2-3条其他角色的评论。格式：【正文】……\n💬角色名：……`,
+    forum:`写一个论坛帖，路人们讨论玩家${g.player.name}最近的行动，3-5楼，八卦视角，可以有误解和猜测。`,
+    memory:`写一段诗化「命运记忆碎片」，以旁观视角用意象化语言描述这段故事的某个关键瞬间，300字，偏文学性。`,
+    gossip:`写一封在NPC间流传的八卦小纸条，内容关于玩家${g.player.name}，轻松八卦语气，200字左右。`,
+    their_view:`以${npc?.name}的内心视角，写TA对玩家${g.player.name}的印象与评价，要有主观滤镜，可有误解偏见，第一或第三人称均可，300字。`
+  };
+
+  const userContent=`当前剧情摘要：\n${recentNarr}\n\n${npcInfo}\n\n任务：${TYPE_PROMPTS[fgState.type]}\n\n请直接输出内容，不要JSON，不要任何额外说明。`;
+  const sys=`你是互动小说辅助叙述者。世界观：${g.worldSetting}。请直接输出内容，不要任何格式标记。`;
+
+  try {
+    const raw=await callAI(sys,[{role:'user',content:userContent}]);
+    const frag={ id:uid(), npcId:npc?.id||null, npcName:npc?.name||'路人', type:fgState.type, content:raw.replace(/```[\s\S]*?```/g,'').trim(), createdAt:new Date().toISOString(), chapterRef:g.chapter };
+    g.fragments=g.fragments||[];
+    g.fragments.push(frag);
+    save(); toast('碎片已生成'); switchTab('fragment');
+  } catch(e){ toast('生成失败: '+e.message); }
+}
+
+// ─────────────────────────────────────────────
+//  SETTINGS
+// ─────────────────────────────────────────────
+function renderSettings() {
+  const {provider,keys,models}=S.settings;
+  document.querySelectorAll('.provider-btn').forEach(b=>b.classList.toggle('active',b.dataset.p===provider));
+  document.getElementById('api-key-input').value=keys[provider]||'';
+  document.getElementById('key-hint').textContent=KEY_HINTS[provider]||'';
+  const sel=document.getElementById('model-select');
+  sel.innerHTML=(MODELS[provider]||[]).map(m=>`<option value="${m}" ${models[provider]===m?'selected':''}>${m}</option>`).join('');
+}
+function selectProvider(p){ S.settings.provider=p; save(); renderSettings(); }
+function saveApiKey(){ S.settings.keys[S.settings.provider]=document.getElementById('api-key-input').value.trim(); save(); }
+function saveModel(){ S.settings.models[S.settings.provider]=document.getElementById('model-select').value; save(); }
+function completeGame(){ const g=cg(); if(!g){toast('未选择游戏');return;} g.completed=true; save(); toast('已标记完结'); }
+function deleteCurrentGame(){
+  const g=cg(); if(!g) return;
+  if(!confirm(`确认删除「${g.name}」的存档？此操作不可撤销。`)) return;
+  delete S.games[S.currentId]; S.currentId=null; save(); switchTab('history');
+}
+
+// ─────────────────────────────────────────────
+//  NEW GAME WIZARD
+// ─────────────────────────────────────────────
+let wzStep=0, wzData={};
+const WZ_TITLES=['世界观设定','玩家角色','登场人物'];
+let emojiIdx=0;
+
+function openWizard(){
+  wzStep=0;
+  wzData={name:'',emoji:'🎭',worldSetting:'',player:{name:'',background:'',stats:[{name:'魅力',value:60},{name:'智谋',value:60},{name:'武力',value:50},{name:'运气',value:50}],tags:[]},npcs:[]};
+  document.getElementById('wizard-modal').style.display='flex';
+  renderWz();
+}
+function wzBgClick(e){ if(e.target===document.getElementById('wizard-modal')) closeWz(); }
+function closeWz(){ document.getElementById('wizard-modal').style.display='none'; }
+
+function renderWz(){
+  document.getElementById('wz-steps').innerHTML=WZ_TITLES.map((_,i)=>`<div class="wz-step ${i<=wzStep?'done':''}"></div>`).join('');
+  const body=document.getElementById('wz-body');
+
+  if(wzStep===0){
+    body.innerHTML=`
+      <div class="modal-title">${WZ_TITLES[0]}</div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">故事名称</label>
+          <div style="display:flex;gap:8px">
+            <input class="form-input" id="wz-name" placeholder="给这个故事起个名字" value="${esc(wzData.name)}" style="flex:1">
+            <div class="form-input" id="wz-emoji" style="width:52px;text-align:center;font-size:22px;cursor:pointer" onclick="pickEmoji()">${wzData.emoji}</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">世界观 / 背景设定</label>
+          <textarea class="form-input form-textarea" id="wz-world" placeholder="描述故事的世界观、背景、基本规则……&#10;可以是仙侠、现代、架空、任意设定">${esc(wzData.worldSetting)}</textarea>
+          <div class="hint-text">这将成为 AI 叙述的核心背景，写得越详细越好</div>
+        </div>
+        <div class="wizard-nav">
+          <div class="btn-secondary" onclick="closeWz()">取消</div>
+          <div class="btn-primary" onclick="wzNext()">下一步</div>
+        </div>
+      </div>`;
+  } else if(wzStep===1){
+    const sh=wzData.player.stats.map((s,i)=>`
+      <div class="stat-row">
+        <input class="form-input stat-name-inp" placeholder="属性名" value="${esc(s.name)}" onchange="updStat(${i},'name',this.value)">
+        <input class="form-input stat-val-inp" type="number" min="1" max="100" value="${s.value}" onchange="updStat(${i},'value',+this.value)">
+        <button class="rm-btn" onclick="rmStat(${i})">×</button>
+      </div>`).join('');
+    body.innerHTML=`
+      <div class="modal-title">${WZ_TITLES[1]}</div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">姓名</label>
+          <input class="form-input" id="wz-pname" placeholder="你的角色名" value="${esc(wzData.player.name)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">背景</label>
+          <input class="form-input" id="wz-pbg" placeholder="身份、来历、简介……" value="${esc(wzData.player.background)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">属性</label>
+          <div class="stats-builder" id="wz-stats">${sh}</div>
+          <button class="add-btn" onclick="addStat()">＋ 添加属性</button>
+          <div class="hint-text">属性值 1-100，影响判定。建议保留「运气」。</div>
+        </div>
+        <div class="wizard-nav">
+          <div class="btn-secondary" onclick="wzBack()">上一步</div>
+          <div class="btn-primary" onclick="wzNext()">下一步</div>
+        </div>
+      </div>`;
+  } else if(wzStep===2){
+    const nh=wzData.npcs.map((n,i)=>`
+      <div class="npc-item">
+        <div class="npc-item-hdr"><span class="npc-item-name">${esc(n.name)||'未命名'}</span><button class="rm-btn" onclick="rmNpc(${i})">×</button></div>
+        <div class="form-group"><label class="form-label">姓名</label><input class="form-input" placeholder="角色名" value="${esc(n.name)}" onchange="updNpc(${i},'name',this.value)"></div>
+        <div class="form-group"><label class="form-label">描述</label><input class="form-input" placeholder="身份、性格、与主角关系……" value="${esc(n.description)}" onchange="updNpc(${i},'description',this.value)"></div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">日记风格（可选）</label><input class="form-input" placeholder="例：克制、多用比喻" value="${esc(n.diaryStyle)}" onchange="updNpc(${i},'diaryStyle',this.value)"></div>
+      </div>`).join('');
+    body.innerHTML=`
+      <div class="modal-title">${WZ_TITLES[2]}</div>
+      <div class="modal-body">
+        <div class="hint-text" style="margin-bottom:12px">添加故事中的重要角色，之后也可以随时在游戏中补充。</div>
+        <div class="npc-builder" id="wz-npcs">${nh}</div>
+        <button class="add-btn" onclick="addNpc()">＋ 添加角色</button>
+        <div class="wizard-nav" style="margin-top:16px">
+          <div class="btn-secondary" onclick="wzBack()">上一步</div>
+          <div class="btn-primary" onclick="createGame()">开始故事</div>
+        </div>
+      </div>`;
+  }
+}
+
+function wzNext(){
+  if(wzStep===0){
+    const name=document.getElementById('wz-name').value.trim();
+    const world=document.getElementById('wz-world').value.trim();
+    if(!name){ toast('请填写故事名称'); return; }
+    if(!world){ toast('请填写世界观设定'); return; }
+    wzData.name=name; wzData.worldSetting=world;
+  }
+  if(wzStep===1){
+    const pname=document.getElementById('wz-pname').value.trim();
+    if(!pname){ toast('请填写角色名'); return; }
+    wzData.player.name=pname;
+    wzData.player.background=document.getElementById('wz-pbg').value.trim();
+  }
+  wzStep++; renderWz();
+}
+function wzBack(){ wzStep--; renderWz(); }
+function pickEmoji(){ emojiIdx=(emojiIdx+1)%EMOJIS.length; wzData.emoji=EMOJIS[emojiIdx]; document.getElementById('wz-emoji').textContent=wzData.emoji; }
+function addStat(){ wzData.player.stats.push({name:'',value:50}); renderWz(); }
+function rmStat(i){ wzData.player.stats.splice(i,1); renderWz(); }
+function updStat(i,k,v){ wzData.player.stats[i][k]=v; if(k==='name'){ const el=document.querySelectorAll('.stat-name-inp')[i]; if(el) el.value=v; } }
+function addNpc(){ wzData.npcs.push({id:uid(),name:'',description:'',diaryStyle:'',weiboStyle:'',affection:50,knownEvents:[]}); renderWz(); }
+function rmNpc(i){ wzData.npcs.splice(i,1); renderWz(); }
+function updNpc(i,k,v){ wzData.npcs[i][k]=v; const hdr=document.querySelectorAll('.npc-item-name')[i]; if(hdr&&k==='name') hdr.textContent=v||'未命名'; }
+
+function createGame(){
+  const statsObj={};
+  wzData.player.stats.forEach(s=>{ if(s.name) statsObj[s.name]=Number(s.value)||50; });
+  const game={
+    id:uid(), name:wzData.name, emoji:wzData.emoji,
+    createdAt:new Date().toISOString(), lastPlayedAt:new Date().toISOString(),
+    completed:false, worldSetting:wzData.worldSetting, chapter:'序章',
+    player:{name:wzData.player.name,background:wzData.player.background,stats:statsObj,tags:[]},
+    npcs:wzData.npcs, messages:[], narrativeHistory:[], fragments:[], _opts:[]
+  };
+  S.games[game.id]=game; S.currentId=game.id; save();
+  closeWz(); switchTab('game'); renderGamePage();
+}
+
+// ─────────────────────────────────────────────
+//  TOAST
+// ─────────────────────────────────────────────
+function toast(msg){
+  const e=document.querySelector('.toast'); if(e)e.remove();
+  const d=document.createElement('div'); d.className='toast'; d.textContent=msg;
+  document.body.appendChild(d); setTimeout(()=>d.remove(),2600);
+}
+
+// ─────────────────────────────────────────────
+//  INPUT EVENTS
+// ─────────────────────────────────────────────
+document.getElementById('free-input').addEventListener('input',function(){
+  this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,100)+'px';
+});
+document.getElementById('free-input').addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendFreeInput(); }
+});
+
+// ─────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────
+load();
+renderHistory();
+renderSettings();
+</script>
+</body>
+</html>
