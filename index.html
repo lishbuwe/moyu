@@ -1,0 +1,1703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e0e12">
+<title>墨游</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;700&family=Noto+Sans+SC:wght@300;400&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+:root {
+  --bg:    #0e0e12;
+  --bg2:   #14141c;
+  --bg3:   #1c1c28;
+  --border:#282838;
+  --bord2: #38384a;
+  --text:  #e2d9cc;
+  --text2: #8c8298;
+  --text3: #4e4858;
+  --gold:  #c4a050;
+  --gold2: #deb86e;
+  --red:   #c45858;
+  --green: #58a878;
+  --tab-h: 56px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --hdr-h: 50px;
+}
+
+html,body { height:100%; background:var(--bg); color:var(--text); font-family:'Noto Serif SC',serif; overflow:hidden; }
+
+#app { height:100%; display:flex; flex-direction:column; max-width:480px; margin:0 auto; position:relative; }
+
+/* PAGES */
+.page { display:none; flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; padding-bottom:calc(var(--tab-h) + var(--safe-b) + 16px); }
+.page.active { display:flex; flex-direction:column; }
+#page-game { padding-bottom:0; }
+
+/* TAB BAR */
+#tab-bar { height:calc(var(--tab-h) + var(--safe-b)); background:var(--bg2); border-top:1px solid var(--border); display:flex; align-items:flex-start; padding-top:4px; flex-shrink:0; position:relative; z-index:100; }
+.tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 0; cursor:pointer; opacity:.4; transition:opacity .2s; }
+.tab.active { opacity:1; }
+.tab-icon { font-size:20px; line-height:1; }
+.tab-label { font-size:10px; font-family:'Noto Sans SC',sans-serif; color:var(--text2); letter-spacing:.5px; }
+.tab.active .tab-label { color:var(--gold); }
+
+/* PAGE HEADER */
+.page-header { padding:20px 20px 12px; display:flex; align-items:baseline; justify-content:space-between; }
+.page-title { font-size:22px; font-weight:600; letter-spacing:2px; }
+.page-subtitle { font-size:12px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+.section-title { font-size:11px; letter-spacing:3px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; padding:16px 0 10px; border-bottom:1px solid var(--border); margin-bottom:14px; }
+
+/* HISTORY */
+.new-game-btn { display:flex; align-items:center; gap:8px; margin:0 20px 20px; padding:14px 20px; background:linear-gradient(135deg,#1a1a26,#222232); border:1px dashed var(--bord2); border-radius:12px; cursor:pointer; color:var(--gold); font-family:'Noto Serif SC',serif; font-size:14px; letter-spacing:1px; transition:background .2s; }
+.new-game-btn:active { background:var(--bg3); }
+.game-list { padding:0 20px; display:flex; flex-direction:column; gap:12px; }
+.game-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:16px; cursor:pointer; display:flex; align-items:center; gap:14px; transition:border-color .15s; }
+.game-card:active { background:var(--bg3); border-color:var(--bord2); }
+.game-emoji { font-size:28px; flex-shrink:0; }
+.game-info { flex:1; min-width:0; }
+.game-name { font-size:15px; font-weight:500; letter-spacing:1px; margin-bottom:4px; }
+.game-meta { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; margin-bottom:6px; }
+.game-tags { display:flex; flex-wrap:wrap; gap:4px; }
+.game-tag { font-size:10px; padding:2px 7px; border-radius:20px; background:var(--bg3); color:var(--text2); font-family:'Noto Sans SC',sans-serif; }
+.game-arrow { color:var(--text3); font-size:18px; }
+
+/* GAME PAGE */
+#game-header { min-height:var(--hdr-h); padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 12px; display:flex; align-items:center; gap:8px; background:var(--bg); border-bottom:1px solid var(--border); flex-shrink:0; }
+#game-world-name { font-size:13px; color:var(--text2); letter-spacing:2px; font-family:'Noto Sans SC',sans-serif; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#game-chapter { font-size:12px; color:var(--gold); font-family:'Noto Sans SC',sans-serif; white-space:nowrap; }
+#game-settings-btn { font-size:19px; color:var(--text3); cursor:pointer; flex-shrink:0; padding:4px; }
+
+#narrative-area { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:20px 20px 12px; display:flex; flex-direction:column; gap:16px; }
+
+.narrative-block { animation:fadeUp .4s ease; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+.narrative-text { font-size:15px; line-height:2; letter-spacing:.5px; color:var(--text); text-indent:2em; margin-bottom:.4em; }
+.narrative-action { font-size:13px; color:var(--text2); font-style:italic; text-align:right; font-family:'Noto Sans SC',sans-serif; border-right:2px solid var(--gold); padding-right:10px; }
+.error-block { background:rgba(196,88,88,.1); border:1px solid rgba(196,88,88,.3); border-radius:8px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.error-msg { font-size:13px; color:var(--red); font-family:'Noto Sans SC',sans-serif; flex:1; }
+.retry-btn { font-size:12px; color:var(--gold); font-family:'Noto Sans SC',sans-serif; padding:5px 12px; border:1px solid rgba(196,160,80,.4); border-radius:6px; cursor:pointer; white-space:nowrap; flex-shrink:0; }
+.retry-btn:active { background:rgba(196,160,80,.1); }
+
+.check-result { background:var(--bg2); border-radius:8px; padding:12px 14px; border-left:3px solid var(--bord2); }
+.check-result.success { border-left-color:var(--green); }
+.check-result.fail { border-left-color:var(--red); }
+.check-label { font-size:11px; font-family:'Noto Sans SC',sans-serif; margin-bottom:6px; color:var(--text2); }
+.check-label.success { color:var(--green); }
+.check-label.fail { color:var(--red); }
+
+/* DICE */
+.check-overlay { position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:999; animation:fadeUp .2s ease; }
+.dice-wrap { display:flex; flex-direction:column; align-items:center; gap:24px; }
+.dice { width:88px; height:88px; border:2px solid var(--gold); border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:40px; animation:diceRoll .55s ease; background:var(--bg2); box-shadow:0 0 30px rgba(196,160,80,.2); }
+@keyframes diceRoll { 0%{transform:rotate(0) scale(.4);opacity:0} 60%{transform:rotate(200deg) scale(1.15)} 100%{transform:rotate(360deg) scale(1);opacity:1} }
+.check-info { text-align:center; font-family:'Noto Sans SC',sans-serif; }
+.ci-stat { font-size:13px; color:var(--text2); margin-bottom:6px; }
+.ci-score { font-size:38px; font-weight:700; letter-spacing:2px; }
+.ci-score.success { color:var(--green); }
+.ci-score.fail { color:var(--red); }
+.ci-vs { font-size:12px; color:var(--text3); margin-top:4px; }
+.ci-verdict { font-size:20px; margin-top:14px; font-weight:600; letter-spacing:5px; }
+.ci-verdict.success { color:var(--green); }
+.ci-verdict.fail { color:var(--red); }
+
+/* OPTIONS */
+#option-area { padding:12px 16px; background:var(--bg); border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; padding-bottom:calc(12px + var(--safe-b)); flex-shrink:0; }
+.options-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.option-btn { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--text); font-family:'Noto Serif SC',serif; font-size:13px; line-height:1.5; cursor:pointer; text-align:left; transition:all .15s; letter-spacing:.3px; width:100%; }
+.option-btn:active { background:var(--bg3); border-color:var(--gold); color:var(--gold2); }
+.free-input-row { display:flex; gap:8px; }
+#free-input { flex:1; background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:10px 14px; color:var(--text); font-family:'Noto Serif SC',serif; font-size:16px; outline:none; -webkit-appearance:none; resize:none; min-height:42px; max-height:100px; }
+#free-input:focus { border-color:var(--bord2); }
+#free-input::placeholder { color:var(--text3); }
+
+/* GAME SETTINGS MODAL */
+.modal-tabs { display:flex; border-bottom:1px solid var(--border); }
+.mtab { flex:1; padding:11px 0; text-align:center; font-size:12px; font-family:'Noto Sans SC',sans-serif; color:var(--text3); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:all .15s; }
+.mtab.active { color:var(--gold); border-bottom-color:var(--gold); }
+.gset-section { padding:16px 20px; }
+.style-row { display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid var(--border); gap:12px; }
+.style-row:last-child { border-bottom:none; }
+.style-left { flex:1; min-width:0; }
+.style-lbl { font-size:13px; color:var(--text); font-family:'Noto Sans SC',sans-serif; }
+.style-hint { font-size:10px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; margin-top:2px; }
+.style-select { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:6px 10px; color:var(--text); font-family:'Noto Sans SC',sans-serif; font-size:13px; outline:none; -webkit-appearance:none; appearance:none; }
+.toggle-wrap { width:42px; height:24px; border-radius:12px; background:var(--bg3); border:1px solid var(--border); cursor:pointer; position:relative; transition:background .2s; flex-shrink:0; }
+.toggle-wrap.on { background:var(--gold); border-color:var(--gold); }
+.toggle-wrap::after { content:''; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:9px; background:#fff; transition:left .2s; }
+.toggle-wrap.on::after { left:20px; }
+.import-row { display:flex; gap:8px; margin-top:8px; }
+.import-btn { padding:9px 14px; border-radius:8px; border:1px solid var(--border); background:var(--bg3); color:var(--text2); font-family:'Noto Sans SC',sans-serif; font-size:12px; cursor:pointer; text-align:center; }
+.import-btn:active { background:var(--border); }
+.npc-imported { background:rgba(88,168,120,.08); border:1px solid rgba(88,168,120,.25); border-radius:8px; padding:8px 12px; margin-top:8px; font-size:12px; color:var(--green); font-family:'Noto Sans SC',sans-serif; line-height:1.7; }
+.btn-danger { flex:1; padding:13px; border-radius:10px; border:1px solid var(--red); background:transparent; color:var(--red); font-family:'Noto Serif SC',serif; font-size:14px; cursor:pointer; text-align:center; }
+#send-btn { background:var(--bg3); border:1px solid var(--bord2); border-radius:10px; width:42px; height:42px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--gold); font-size:18px; flex-shrink:0; transition:background .15s; }
+#send-btn:active { background:var(--border); }
+
+/* LOADING */
+.loading-dots { display:flex; align-items:center; gap:5px; padding:16px 0; }
+.loading-dots span { width:6px; height:6px; border-radius:50%; background:var(--text3); animation:dotBounce 1.2s infinite; }
+.loading-dots span:nth-child(2){animation-delay:.2s}
+.loading-dots span:nth-child(3){animation-delay:.4s}
+@keyframes dotBounce { 0%,80%,100%{transform:translateY(0);opacity:.4} 40%{transform:translateY(-6px);opacity:1} }
+
+/* CHARACTER PAGE */
+.char-section { padding:0 20px 16px; }
+.npc-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
+.npc-header { display:flex; align-items:baseline; gap:8px; margin-bottom:10px; }
+.npc-name { font-size:16px; font-weight:500; letter-spacing:1px; }
+.npc-desc { font-size:12px; color:var(--text2); font-family:'Noto Sans SC',sans-serif; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.affection-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.aff-label { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; white-space:nowrap; }
+.aff-bar { flex:1; height:4px; background:var(--bg3); border-radius:2px; overflow:hidden; }
+.aff-fill { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--red),var(--gold),var(--gold2)); transition:width .5s ease; }
+.aff-num { font-size:12px; color:var(--gold); font-family:'Noto Sans SC',sans-serif; white-space:nowrap; }
+.event-tags { display:flex; flex-wrap:wrap; gap:4px; }
+.event-tag { font-size:10px; padding:2px 7px; border-radius:20px; background:var(--bg3); color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+
+/* CHARACTER MEMO */
+.memo-row { margin-top:10px; border-top:1px solid var(--border); padding-top:9px; }
+.memo-hdr { display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
+.memo-hdr-left { display:flex; align-items:center; gap:6px; }
+.memo-label { font-size:10px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; letter-spacing:1px; }
+.memo-badge { font-size:9px; padding:1px 6px; border-radius:10px; background:rgba(196,160,80,.12); color:var(--gold); font-family:'Noto Sans SC',sans-serif; }
+.memo-badge.updating { background:rgba(88,168,120,.12); color:var(--green); }
+.memo-toggle { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+.memo-preview { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; margin-top:5px; line-height:1.6; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.memo-body { margin-top:8px; }
+.memo-text { font-size:12px; color:var(--text2); font-family:'Noto Sans SC',sans-serif; line-height:1.8; white-space:pre-wrap; }
+.memo-actions { display:flex; gap:6px; margin-top:8px; }
+.memo-btn { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; padding:4px 10px; border:1px solid var(--border); border-radius:6px; cursor:pointer; background:transparent; }
+.memo-btn:active { background:var(--bg3); }
+.memo-btn.primary { color:var(--gold); border-color:rgba(196,160,80,.4); }
+.memo-edit-area { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:8px 10px; color:var(--text); font-family:'Noto Sans SC',sans-serif; font-size:12px; line-height:1.8; outline:none; resize:none; min-height:80px; margin-top:6px; }
+
+.player-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:12px; }
+.player-name-row { display:flex; align-items:baseline; gap:8px; margin-bottom:14px; }
+.player-name { font-size:18px; font-weight:500; letter-spacing:2px; }
+.player-bg-text { font-size:12px; color:var(--text2); font-family:'Noto Sans SC',sans-serif; }
+.stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+.stat-item { display:flex; flex-direction:column; gap:4px; }
+.s-name { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; letter-spacing:1px; }
+.s-bar-row { display:flex; align-items:center; gap:6px; }
+.s-bar { flex:1; height:3px; background:var(--bg3); border-radius:2px; overflow:hidden; }
+.s-fill { height:100%; border-radius:2px; background:var(--gold); transition:width .5s; }
+.s-val { font-size:13px; color:var(--text); font-family:'Noto Sans SC',sans-serif; }
+.player-tags { display:flex; flex-wrap:wrap; gap:5px; }
+.p-tag { font-size:11px; padding:3px 9px; border-radius:20px; background:rgba(196,160,80,.1); border:1px solid rgba(196,160,80,.3); color:var(--gold); font-family:'Noto Sans SC',sans-serif; }
+
+/* FRAGMENT PAGE */
+.frag-toolbar { padding:0 20px 12px; display:flex; align-items:center; gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; flex-shrink:0; }
+.frag-toolbar::-webkit-scrollbar { display:none; }
+.frag-filter { padding:6px 14px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--text2); font-family:'Noto Sans SC',sans-serif; font-size:12px; white-space:nowrap; cursor:pointer; transition:all .15s; flex-shrink:0; }
+.frag-filter.active { background:var(--bg3); border-color:var(--gold); color:var(--gold); }
+.gen-frag-btn { display:flex; align-items:center; gap:6px; margin:0 20px 14px; padding:12px 16px; background:linear-gradient(135deg,rgba(196,160,80,.1),rgba(196,160,80,.05)); border:1px solid rgba(196,160,80,.3); border-radius:10px; cursor:pointer; color:var(--gold); font-family:'Noto Sans SC',sans-serif; font-size:13px; letter-spacing:1px; flex-shrink:0; }
+.gen-frag-btn:active { background:rgba(196,160,80,.15); }
+.fragment-list { padding:0 20px; display:flex; flex-direction:column; gap:12px; }
+.fragment-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+.frag-header { padding:10px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); }
+.frag-meta { display:flex; align-items:center; gap:8px; }
+.frag-npc { font-size:13px; font-weight:500; letter-spacing:1px; }
+.frag-type-badge { font-size:10px; padding:2px 7px; border-radius:20px; background:var(--bg3); color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+.frag-chapter-ref { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; }
+.frag-content { padding:14px; font-size:13px; line-height:1.9; color:var(--text2); letter-spacing:.3px; white-space:pre-line; }
+
+/* SETTINGS PAGE */
+.settings-section { padding:0 20px 20px; }
+.setting-item { padding:14px 0; border-bottom:1px solid var(--border); }
+.setting-item:last-child { border-bottom:none; }
+.setting-label { font-size:12px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; letter-spacing:1px; margin-bottom:8px; }
+.provider-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+.provider-btn { padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); font-family:'Noto Sans SC',sans-serif; font-size:12px; text-align:center; cursor:pointer; transition:all .15s; }
+.provider-btn.active { border-color:var(--gold); color:var(--gold); background:rgba(196,160,80,.08); }
+.setting-input { width:100%; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text); font-family:'Noto Sans SC',sans-serif; font-size:13px; outline:none; -webkit-appearance:none; }
+.setting-input:focus { border-color:var(--bord2); }
+.model-select { width:100%; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text); font-family:'Noto Sans SC',sans-serif; font-size:13px; outline:none; -webkit-appearance:none; appearance:none; }
+
+/* MODAL */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.72); display:flex; flex-direction:column; justify-content:flex-end; z-index:500; animation:fadeUp .2s ease; }
+.modal-sheet { background:var(--bg2); border-radius:20px 20px 0 0; border-top:1px solid var(--border); max-height:92vh; overflow-y:auto; padding-bottom:calc(20px + var(--safe-b)); }
+.modal-handle { width:36px; height:4px; background:var(--bord2); border-radius:2px; margin:12px auto 16px; }
+.modal-title { font-size:17px; font-weight:500; letter-spacing:2px; padding:0 20px 16px; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.modal-body { padding:0 20px; }
+.form-group { margin-bottom:16px; }
+.form-label { font-size:11px; color:var(--text3); letter-spacing:2px; font-family:'Noto Sans SC',sans-serif; margin-bottom:8px; display:block; }
+.form-input { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:12px 14px; color:var(--text); font-family:'Noto Serif SC',serif; font-size:14px; outline:none; -webkit-appearance:none; }
+.form-input:focus { border-color:var(--bord2); }
+.form-textarea { resize:none; min-height:80px; line-height:1.7; }
+.hint-text { font-size:11px; color:var(--text3); font-family:'Noto Sans SC',sans-serif; margin-top:6px; line-height:1.6; }
+.stats-builder { display:flex; flex-direction:column; gap:8px; margin-bottom:8px; }
+.stat-row { display:flex; gap:8px; align-items:center; }
+.stat-name-inp { flex:1; }
+.stat-val-inp { width:70px; text-align:center; }
+.rm-btn { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text3); cursor:pointer; font-size:16px; flex-shrink:0; }
+.add-btn { padding:8px; border-radius:8px; border:1px dashed var(--border); background:transparent; color:var(--text3); font-family:'Noto Sans SC',sans-serif; font-size:12px; cursor:pointer; text-align:center; width:100%; }
+.npc-builder { display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
+.npc-item { background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:12px; }
+.npc-item-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.npc-item-name { font-size:14px; letter-spacing:1px; }
+.wizard-steps { display:flex; gap:6px; padding:0 20px 16px; justify-content:center; }
+.wz-step { width:20px; height:3px; border-radius:2px; background:var(--bord2); transition:background .3s; }
+.wz-step.done { background:var(--gold); }
+.wizard-nav { display:flex; gap:8px; padding:16px 0 0; }
+.btn-secondary { flex:1; padding:13px; border-radius:10px; border:1px solid var(--border); background:transparent; color:var(--text2); font-family:'Noto Serif SC',serif; font-size:14px; cursor:pointer; text-align:center; }
+.btn-primary { flex:2; padding:13px; border-radius:10px; border:none; background:linear-gradient(135deg,#c4a050,#deb86e); color:#0e0e12; font-family:'Noto Serif SC',serif; font-size:14px; font-weight:600; cursor:pointer; letter-spacing:1px; text-align:center; }
+
+/* FRAG GEN */
+.frag-type-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+.frag-type-btn { padding:12px 10px; border-radius:10px; border:1px solid var(--border); background:var(--bg3); color:var(--text2); font-family:'Noto Serif SC',serif; font-size:13px; text-align:center; cursor:pointer; transition:all .15s; }
+.frag-type-btn.active { border-color:var(--gold); color:var(--gold); background:rgba(196,160,80,.08); }
+.npc-sel-grid { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.npc-sel-btn { padding:7px 14px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--text2); font-family:'Noto Serif SC',serif; font-size:13px; cursor:pointer; transition:all .15s; }
+.npc-sel-btn.active { border-color:var(--gold); color:var(--gold); }
+
+/* UTILS */
+.empty-state { padding:40px 20px; text-align:center; color:var(--text3); font-family:'Noto Sans SC',sans-serif; font-size:13px; line-height:2; }
+.empty-icon { font-size:32px; margin-bottom:10px; }
+.toast { position:fixed; top:calc(20px + env(safe-area-inset-top,0px)); left:50%; transform:translateX(-50%); background:var(--bg3); border:1px solid var(--bord2); border-radius:8px; padding:10px 20px; font-size:13px; font-family:'Noto Sans SC',sans-serif; color:var(--text); z-index:9999; white-space:nowrap; animation:toastIn .3s ease, toastOut .3s ease 2s forwards; }
+@keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(-10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+@keyframes toastOut { to{opacity:0;transform:translateX(-50%) translateY(-10px)} }
+*::-webkit-scrollbar { display:none; }
+* { scrollbar-width:none; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HISTORY -->
+  <div id="page-history" class="page active">
+    <div class="page-header">
+      <span class="page-title">墨游</span>
+      <span class="page-subtitle" id="hist-sub">0 个故事</span>
+    </div>
+    <div class="new-game-btn" onclick="openWizard()"><span>＋</span><span>开始新的故事</span></div>
+    <div class="game-list" id="game-list"></div>
+  </div>
+
+  <!-- GAME -->
+  <div id="page-game" class="page">
+    <div id="game-header">
+      <span id="game-world-name">—</span>
+      <span id="game-chapter">序章</span>
+      <span id="game-settings-btn" onclick="openGset()">⚙</span>
+    </div>
+    <div id="narrative-area">
+      <div class="empty-state"><div class="empty-icon">📖</div>故事从这里开始……</div>
+    </div>
+    <div id="option-area">
+      <div class="options-grid" id="options-grid"></div>
+      <div class="free-input-row">
+        <textarea id="free-input" placeholder="自由行动……" rows="1"></textarea>
+        <div id="send-btn" onclick="sendFreeInput()">↑</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARACTER -->
+  <div id="page-character" class="page">
+    <div class="page-header"><span class="page-title">角色</span></div>
+    <div class="char-section">
+      <div class="section-title">我的状态</div>
+      <div id="player-panel"></div>
+      <div class="section-title">登场人物</div>
+      <div id="npc-list"></div>
+    </div>
+  </div>
+
+  <!-- FRAGMENT -->
+  <div id="page-fragment" class="page">
+    <div class="page-header" style="flex-shrink:0"><span class="page-title">碎片集</span></div>
+    <div class="gen-frag-btn" onclick="openFragGen()">✦ 生成新碎片</div>
+    <div class="frag-toolbar" id="frag-filters"></div>
+    <div class="fragment-list" id="fragment-list"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="page-settings" class="page">
+    <div class="page-header"><span class="page-title">设置</span></div>
+    <div class="settings-section">
+      <div class="section-title">AI 服务商</div>
+      <div class="setting-item">
+        <div class="provider-grid" id="provider-grid">
+          <div class="provider-btn active" data-p="deepseek" onclick="selectProvider('deepseek')">DeepSeek</div>
+          <div class="provider-btn" data-p="claude" onclick="selectProvider('claude')">Claude</div>
+          <div class="provider-btn" data-p="openai" onclick="selectProvider('openai')">GPT</div>
+          <div class="provider-btn" data-p="gemini" onclick="selectProvider('gemini')">Gemini</div>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">API KEY</div>
+        <input class="setting-input" type="password" id="api-key-input" placeholder="输入 API Key" onchange="saveApiKey()">
+        <div class="hint-text" id="key-hint"></div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">模型</div>
+        <select class="model-select" id="model-select" onchange="saveModel()"></select>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB BAR -->
+  <div id="tab-bar">
+    <div class="tab active" onclick="switchTab('history')" data-tab="history">
+      <span class="tab-icon">📚</span><span class="tab-label">故事</span>
+    </div>
+    <div class="tab" onclick="switchTab('game')" data-tab="game">
+      <span class="tab-icon">📖</span><span class="tab-label">游玩</span>
+    </div>
+    <div class="tab" onclick="switchTab('character')" data-tab="character">
+      <span class="tab-icon">👤</span><span class="tab-label">角色</span>
+    </div>
+    <div class="tab" onclick="switchTab('fragment')" data-tab="fragment">
+      <span class="tab-icon">🎴</span><span class="tab-label">碎片集</span>
+    </div>
+    <div class="tab" onclick="switchTab('settings')" data-tab="settings">
+      <span class="tab-icon">⚙️</span><span class="tab-label">设置</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAME SETTINGS MODAL -->
+<div id="gset-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeGset()">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title" style="margin-bottom:0">游戏设置</div>
+    <div class="modal-tabs">
+      <div class="mtab active" data-gt="style" onclick="switchGsetTab('style')">风格</div>
+      <div class="mtab" data-gt="chars" onclick="switchGsetTab('chars')">角色</div>
+      <div class="mtab" data-gt="world" onclick="switchGsetTab('world')">设定</div>
+    </div>
+    <div id="gset-body"></div>
+  </div>
+</div>
+
+<!-- NPC IMPORT PASTE MODAL -->
+<div id="npc-paste-modal" class="modal-overlay" style="display:none;z-index:600" onclick="if(event.target===this)closeNpcPaste()">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title">粘贴角色设定</div>
+    <div class="modal-body" style="padding-top:16px">
+      <div class="form-group">
+        <label class="form-label">角色设定文本</label>
+        <textarea class="form-input form-textarea" id="npc-paste-text" placeholder="把角色设定内容粘贴在这里，AI将自动解析……" style="min-height:140px"></textarea>
+        <div class="hint-text">支持任意格式，AI自动提取姓名、描述、性格等信息</div>
+      </div>
+      <div id="npc-paste-result"></div>
+      <div class="wizard-nav" id="npc-paste-nav">
+        <div class="btn-secondary" onclick="closeNpcPaste()">取消</div>
+        <div class="btn-primary" onclick="parseNpcPaste()">AI解析并导入</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FILE INPUTS -->
+<input type="file" id="fi-world" accept=".txt,.md" style="display:none" onchange="handleWorldFile(event)">
+<input type="file" id="fi-npc" accept=".txt,.md" style="display:none" onchange="handleNpcFile(event)">
+
+<!-- WIZARD MODAL -->
+<div id="wizard-modal" class="modal-overlay" style="display:none" onclick="wzBgClick(event)">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="wizard-steps" id="wz-steps"></div>
+    <div id="wz-body"></div>
+  </div>
+</div>
+
+<!-- FRAG GEN MODAL -->
+<div id="frag-modal" class="modal-overlay" style="display:none" onclick="fgBgClick(event)">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title">生成碎片</div>
+    <div class="modal-body" style="padding-top:16px;padding-bottom:8px">
+      <div class="form-group">
+        <label class="form-label">选择角色</label>
+        <div class="npc-sel-grid" id="fg-npc-sel"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">碎片类型</label>
+        <div class="frag-type-grid">
+          <div class="frag-type-btn active" data-type="diary"      onclick="selFgType('diary')">📔 角色日记</div>
+          <div class="frag-type-btn"        data-type="weibo"      onclick="selFgType('weibo')">📱 朋友圈</div>
+          <div class="frag-type-btn"        data-type="forum"      onclick="selFgType('forum')">💬 论坛帖</div>
+          <div class="frag-type-btn"        data-type="memory"     onclick="selFgType('memory')">✦ 记忆碎片</div>
+          <div class="frag-type-btn"        data-type="gossip"     onclick="selFgType('gossip')">🗣 NPC八卦</div>
+          <div class="frag-type-btn"        data-type="their_view" onclick="selFgType('their_view')">👁 TA眼中的我</div>
+        </div>
+      </div>
+      <div class="wizard-nav" style="padding-bottom:8px">
+        <div class="btn-secondary" onclick="closeFgModal()">取消</div>
+        <div class="btn-primary" onclick="generateFragment()">生成</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CHECK OVERLAY -->
+<div id="check-overlay" class="check-overlay" style="display:none">
+  <div class="dice-wrap">
+    <div class="dice">🎲</div>
+    <div class="check-info">
+      <div class="ci-stat" id="ci-stat">—</div>
+      <div class="ci-score" id="ci-score">—</div>
+      <div class="ci-vs"    id="ci-vs">—</div>
+      <div class="ci-verdict" id="ci-verdict">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONSTANTS
+// ─────────────────────────────────────────────
+const SK = 'moyu_v1';
+
+const MODELS = {
+  deepseek: ['deepseek-chat','deepseek-reasoner'],
+  claude:   ['claude-sonnet-4-6','claude-opus-4-6'],
+  openai:   ['gpt-4o','gpt-4.1','gpt-4o-mini'],
+  gemini:   ['gemini-2.0-flash','gemini-1.5-pro']
+};
+
+const KEY_HINTS = {
+  deepseek: '从 platform.deepseek.com 获取',
+  claude:   '从 console.anthropic.com 获取',
+  openai:   '从 platform.openai.com 获取',
+  gemini:   '从 aistudio.google.com 获取'
+};
+
+const FRAG_LABELS = {
+  diary:'📔 日记', weibo:'📱 朋友圈', forum:'💬 论坛帖',
+  memory:'✦ 记忆碎片', gossip:'🗣 八卦', their_view:'👁 TA眼中的我'
+};
+
+const EMOJIS = ['🎭','⚔️','🌸','🐉','🌙','🏮','🗡️','💫','🌊','🔮','🎪','🏔️'];
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let S = {
+  currentId: null,
+  settings: {
+    provider: 'deepseek',
+    keys: {deepseek:'',claude:'',openai:'',gemini:''},
+    models: {deepseek:'deepseek-chat',claude:'claude-sonnet-4-6',openai:'gpt-4o',gemini:'gemini-2.0-flash'}
+  },
+  games: {}
+};
+
+function load() {
+  try { const d = localStorage.getItem(SK); if(d) S = {...S,...JSON.parse(d)}; } catch(e){}
+}
+function save() {
+  try { localStorage.setItem(SK, JSON.stringify(S)); } catch(e){}
+}
+function uid() { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
+function ago(ts) {
+  const d = Date.now()-new Date(ts).getTime();
+  if(d<60000)return'刚刚';
+  if(d<3600000)return Math.floor(d/60000)+'分钟前';
+  if(d<86400000)return Math.floor(d/3600000)+'小时前';
+  return Math.floor(d/86400000)+'天前';
+}
+function cg() { return S.currentId ? S.games[S.currentId] : null; }
+
+// ─────────────────────────────────────────────
+//  NAVIGATION
+// ─────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+tab).classList.add('active');
+  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+  if(tab==='history')  renderHistory();
+  if(tab==='character')renderCharacter();
+  if(tab==='fragment') renderFragments();
+  if(tab==='settings') renderSettings();
+  if(tab==='game')     setTimeout(scrollBottom,80);
+}
+
+// ─────────────────────────────────────────────
+//  HISTORY
+// ─────────────────────────────────────────────
+function renderHistory() {
+  const games = Object.values(S.games).sort((a,b)=>new Date(b.lastPlayedAt)-new Date(a.lastPlayedAt));
+  document.getElementById('hist-sub').textContent = games.length+' 个故事';
+  const el = document.getElementById('game-list');
+  if(!games.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">✦</div>还没有故事<br>开始第一个吧</div>`;
+    return;
+  }
+  el.innerHTML=games.map(g=>`
+    <div class="game-card" style="display:flex;align-items:center;padding:0">
+      <div style="flex:1;display:flex;align-items:center;gap:14px;padding:16px;cursor:pointer;min-width:0" onclick="loadGame('${g.id}')">
+        <div class="game-emoji">${g.emoji||'🎭'}</div>
+        <div class="game-info">
+          <div class="game-name">${esc(g.name)}${g.completed?'<span style="font-size:11px;color:var(--text3)"> · 完结</span>':''}</div>
+          <div class="game-meta">${ago(g.lastPlayedAt)} · ${esc(g.chapter)}</div>
+          <div class="game-tags">${(g.npcs||[]).slice(0,3).map(n=>`<span class="game-tag">${esc(n.name)}</span>`).join('')}</div>
+        </div>
+      </div>
+      <div style="padding:16px;color:var(--text3);font-size:18px;cursor:pointer;flex-shrink:0" onclick="deleteGame('${g.id}')">🗑</div>
+    </div>
+  `).join('');
+}
+
+function loadGame(id) {
+  S.currentId = id;
+  S.games[id].lastPlayedAt = new Date().toISOString();
+  save();
+  switchTab('game');
+  renderGamePage();
+}
+
+// ─────────────────────────────────────────────
+//  GAME PAGE
+// ─────────────────────────────────────────────
+function renderGamePage() {
+  const g = cg(); if(!g) return;
+  document.getElementById('game-world-name').textContent = g.name;
+  document.getElementById('game-chapter').textContent = g.chapter;
+  const area = document.getElementById('narrative-area');
+  if(!g.narrativeHistory||g.narrativeHistory.length===0){
+    area.innerHTML=`<div class="empty-state"><div class="empty-icon">📖</div>正在生成开场……</div>`;
+    renderOptions([]);
+    startGame();
+    return;
+  }
+  renderNarrativeHistory();
+  renderOptions(g._opts||[]);
+}
+
+function renderNarrative(content){
+  // 按\n\n分段，每段独立p，保留单\n换行
+  const paras=content.split(/\n{2,}/).map(p=>p.trim()).filter(Boolean);
+  if(paras.length<=1) return`<div class="narrative-text">${esc(content).replace(/\n/g,'<br>')}</div>`;
+  return paras.map(p=>`<div class="narrative-text">${esc(p).replace(/\n/g,'<br>')}</div>`).join('');
+}
+
+function renderNarrativeHistory() {
+  const g=cg(); if(!g) return;
+  const area=document.getElementById('narrative-area');
+  area.innerHTML=(g.narrativeHistory||[]).map(b=>{
+    if(b.type==='narrative')
+      return`<div class="narrative-block">${renderNarrative(b.content)}</div>`;
+    if(b.type==='action')
+      return`<div class="narrative-block"><div class="narrative-action">「${esc(b.content)}」</div></div>`;
+    if(b.type==='check')
+      return`<div class="narrative-block"><div class="check-result ${b.success?'success':'fail'}">
+        <div class="check-label ${b.success?'success':'fail'}">${b.success?'✓ 判定成功':'✗ 判定失败'} · ${esc(b.stat)}(${b.score}) vs 难度${b.diff}</div>
+        ${renderNarrative(b.content)}
+      </div></div>`;
+    return'';
+  }).join('');
+  // 渲染完成后滚动：如果是历史回溯则到底部，游戏中有新action则滚到action处
+  if(_scrollToAction){
+    _scrollToAction=false;
+    setTimeout(scrollToActionBlock,30);
+  } else {
+    scrollBottom();
+  }
+}
+
+function scrollToActionBlock() {
+  // 找最后一个action块，滚动到让它在顶部附近
+  const area = document.getElementById('narrative-area');
+  const blocks = area.querySelectorAll('.narrative-block');
+  // 找最后一个action类型的块
+  let actionBlock = null;
+  for(let i=blocks.length-1;i>=0;i--){
+    if(blocks[i].querySelector('.narrative-action')){ actionBlock=blocks[i]; break; }
+  }
+  if(actionBlock){
+    const offset = actionBlock.offsetTop - 16;
+    area.scrollTo({top: offset, behavior:'smooth'});
+  } else {
+    area.scrollTo({top: area.scrollHeight, behavior:'smooth'});
+  }
+}
+
+function scrollBottom() {
+  const a=document.getElementById('narrative-area');
+  if(a) a.scrollTop=a.scrollHeight;
+}
+
+function renderOptions(opts) {
+  const grid=document.getElementById('options-grid');
+  grid.innerHTML=(opts||[]).map((o,i)=>`<button class="option-btn" onclick="chooseOpt(${i})">${esc(o)}</button>`).join('');
+}
+
+function showLoading() {
+  const area=document.getElementById('narrative-area');
+  const d=document.createElement('div');
+  d.className='narrative-block'; d.id='ld-block';
+  d.innerHTML=`<div class="loading-dots"><span></span><span></span><span></span></div>`;
+  area.appendChild(d); scrollBottom(); renderOptions([]);
+}
+function hideLoading() { const e=document.getElementById('ld-block'); if(e)e.remove(); }
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+let _lastAction = null;
+let _scrollToAction = false;
+
+async function startGame() {
+  const g=cg(); if(!g) return;
+  showLoading();
+  const userMsg='请开始故事，生成引人入胜的开场白，并提供初始选项。';
+  try {
+    const sys=buildSys(g);
+    g.messages=[];
+    const raw=await withTimeout(callAI(sys,[{role:'user',content:userMsg}]));
+    const p=parseRes(raw);
+    g.messages.push({role:'user',content:userMsg},{role:'assistant',content:raw});
+    applyChanges(g,p.sc);
+    g.narrativeHistory=[{type:'narrative',content:p.narrative}];
+    g._opts=p.options;
+    hideLoading(); save(); renderNarrativeHistory(); renderOptions(p.options);
+    document.getElementById('game-chapter').textContent=g.chapter;
+  } catch(e){ showErrorBlock(e.message, ()=>startGame()); }
+}
+
+async function chooseOpt(i) {
+  const g=cg(); if(!g||!g._opts) return;
+  await doAction(g._opts[i]);
+}
+
+async function sendFreeInput() {
+  const inp=document.getElementById('free-input');
+  const t=inp.value.trim(); if(!t) return;
+  inp.value=''; inp.style.height='auto';
+  await doAction(t);
+}
+
+async function doAction(action) {
+  const g=cg(); if(!g) return;
+  _lastAction = action;
+  _scrollToAction = true;
+  g.narrativeHistory.push({type:'action',content:action});
+  renderNarrativeHistory(); showLoading();
+
+  // 取上一条叙述的前40字作为「上一轮已发生」提示
+  const lastNarr = (g.narrativeHistory||[]).filter(b=>b.type==='narrative'||b.type==='check').slice(-2,-1)[0];
+  const lastSummary = lastNarr ? lastNarr.content.slice(0,60).replace(/\n/g,' ') : '';
+  const ctxHint = lastSummary
+    ? `\n（上一轮已发生：「${lastSummary}……」请从这之后的直接后果开始，不要重述已发生内容，场景必须有实质推进）`
+    : '';
+
+  const msgContent = action + ctxHint;
+  g.messages.push({role:'user', content:msgContent});
+  const sys=buildSys(g);
+  try {
+    const raw=await withTimeout(callAI(sys,g.messages));
+    const p=parseRes(raw);
+    g.messages.push({role:'assistant',content:raw});
+
+    if(p.check){
+      if(p.narrative && p.narrative!=='……'){
+        g.narrativeHistory.push({type:'narrative',content:p.narrative});
+      }
+      hideLoading();
+      const cr=await doCheck(p.check,g);
+      const followUp=`（检定：${p.check.required}得${cr.score} vs 难度${p.check.difficulty}，${cr.success?'成功':'失败'}）从判定的直接后果开始叙述，不要重复已有内容，给出3个新选项。`;
+      showLoading();
+      g.messages.push({role:'user',content:followUp});
+      const raw2=await withTimeout(callAI(sys,g.messages));
+      const p2=parseRes(raw2);
+      g.messages.push({role:'assistant',content:raw2});
+      applyChanges(g,p2.sc);
+      hideLoading();
+      g.narrativeHistory.push({type:'check',success:cr.success,stat:p.check.required,score:cr.score,diff:p.check.difficulty,content:p2.narrative});
+      g._opts=p2.options;
+      autoUpdateCharMemos(g, p2.sc||{});
+    } else {
+      applyChanges(g,p.sc);
+      hideLoading();
+      g.narrativeHistory.push({type:'narrative',content:p.narrative});
+      g._opts=p.options;
+      autoUpdateCharMemos(g, p.sc||{});
+    }
+
+    // 截断到20条，优先删除最旧的 assistant 叙述，保留 user 行动
+    if(g.messages.length > 20){
+      const keep = [];
+      let removed = 0;
+      const target = g.messages.length - 20;
+      for(let i=0; i<g.messages.length; i++){
+        const m = g.messages[i];
+        // 优先丢弃靠前的 assistant 消息
+        if(removed < target && m.role==='assistant' && i < g.messages.length - 8){
+          removed++; continue;
+        }
+        keep.push(m);
+      }
+      g.messages = keep;
+    }
+
+    g.lastPlayedAt=new Date().toISOString();
+    _scrollToAction=true;
+    save(); renderNarrativeHistory(); renderOptions(g._opts||[]);
+    document.getElementById('game-chapter').textContent=g.chapter;
+  } catch(e){ showErrorBlock(e.message, ()=>retryLast()); }
+}
+
+function retryLast(){
+  const g=cg(); if(!g||!_lastAction) return;
+  if(g.narrativeHistory.length && g.narrativeHistory[g.narrativeHistory.length-1].type==='error') g.narrativeHistory.pop();
+  if(g.messages.length && g.messages[g.messages.length-1].role==='user') g.messages.pop();
+  hideLoading(); renderNarrativeHistory();
+  doAction(_lastAction);
+}
+
+function showErrorBlock(msg) {
+  hideLoading();
+  const area=document.getElementById('narrative-area');
+  const d=document.createElement('div'); d.className='narrative-block'; d.id='err-block';
+  d.innerHTML=`<div class="error-block"><span class="error-msg">⚠ ${esc(msg)}</span><span class="retry-btn" onclick="retryLast()">重试</span></div>`;
+  area.appendChild(d); scrollBottom();
+  renderOptions([]);
+}
+
+// ─────────────────────────────────────────────
+//  AUTO CHARACTER MEMO（异步，静默不阻塞，只追加不覆盖）
+// ─────────────────────────────────────────────
+async function autoUpdateCharMemos(game, sc) {
+  game._memoCounter = (game._memoCounter||0) + 1;
+  const isNewNpc = sc.new_npcs && sc.new_npcs.length > 0;
+  if(game._memoCounter % 4 !== 0 && !isNewNpc) return;
+
+  // 最近叙述
+  const recentText = (game.narrativeHistory||[])
+    .filter(b=>b.type==='narrative'||b.type==='check'||b.type==='action')
+    .slice(-8).map(b=>b.content||'').join('\n').slice(0,1500);
+
+  // —— NPC记忆追加 ——
+  const affNames = Object.keys(sc.npc_affection||{});
+  const newNames = (sc.new_npcs||[]).map(n=>n.name);
+  const involvedNames = [...new Set([...affNames, ...newNames])];
+
+  for(const name of involvedNames){
+    const npc = game.npcs.find(n=>n.name===name);
+    if(!npc || npc._memoUpdating) continue;
+    npc._memoUpdating = true;
+    try{
+      const existing = npc.characterMemo||'';
+      // 追加模式：只提取本轮新增的关键信息，附加到现有记忆末尾
+      const prompt = `你是角色记忆助手。
+现有记忆：${existing||'（无）'}
+角色：${npc.name}，${npc.description||''}
+最近剧情：${recentText}
+
+任务：从最近剧情中提取关于【${npc.name}】的新信息（性格表现、与玩家的关键互动、态度变化），写成1-2句追加条目，≤50字。
+如果最近剧情中没有关于此角色的新信息，直接输出"无"。
+只输出追加条目本身，不加任何标题、序号、说明。`;
+      const raw = await callAI('直接输出追加内容，无则输出"无"。',
+        [{role:'user',content:prompt}], false);
+      const addition = raw.replace(/```[\s\S]*?```/g,'').trim();
+      if(addition && addition !== '无' && addition.length > 2){
+        // 拼接：旧记忆 + 分隔 + 新条目，总长不超过400字
+        const sep = existing ? '；' : '';
+        const merged = (existing + sep + addition).slice(-400);
+        npc.characterMemo = merged;
+      }
+    }catch(e){ /* 静默失败 */ }
+    npc._memoUpdating = false;
+    save();
+  }
+
+  // —— 玩家记忆追加（每8轮一次）——
+  if(game._memoCounter % 8 !== 0) return;
+  const player = game.player;
+  const existingPlayer = player.characterMemo||'';
+  try{
+    const recentActions = (game.narrativeHistory||[])
+      .filter(b=>b.type==='action').slice(-6).map(b=>`玩家：${b.content}`).join('\n');
+    const prompt = `你是角色记忆助手。
+玩家角色：${player.name}，${player.background||''}
+现有记忆：${existingPlayer||'（无）'}
+最近玩家行动：${recentActions||'（无）'}
+最近剧情：${recentText.slice(0,800)}
+
+任务：从最近玩家行动中提取体现其性格/决策风格/行为模式的1句话追加条目，≤40字。
+如果没有值得记录的新信息，直接输出"无"。
+只输出追加条目本身。`;
+    const raw = await callAI('直接输出追加内容，无则输出"无"。',
+      [{role:'user',content:prompt}], false);
+    const addition = raw.replace(/```[\s\S]*?```/g,'').trim();
+    if(addition && addition !== '无' && addition.length > 2){
+      const sep = existingPlayer ? '；' : '';
+      player.characterMemo = (existingPlayer + sep + addition).slice(-300);
+      save();
+    }
+  }catch(e){ /* 静默失败 */ }
+}
+
+// ─────────────────────────────────────────────
+//  CHECK / DICE
+// ─────────────────────────────────────────────
+function doCheck(check, game) {
+  return new Promise(resolve => {
+    const stat  = game.player.stats[check.required] || 50;
+    const luck  = game.player.stats['运气'] || 50;
+    const roll  = Math.round((Math.random()*30)-15);
+    const lBonus= Math.round((luck-50)*0.2);
+    const score = stat + roll + lBonus;
+    const ok    = score > check.difficulty;
+
+    const ov = document.getElementById('check-overlay');
+    document.getElementById('ci-stat').textContent = check.required+' 检定';
+    const se = document.getElementById('ci-score');
+    se.textContent = score;
+    se.className = 'ci-score '+(ok?'success':'fail');
+    document.getElementById('ci-vs').textContent = `基础${stat} ${roll>=0?'+':''}${roll} 幸运${lBonus>=0?'+':''}${lBonus}`;
+    const ve = document.getElementById('ci-verdict');
+    ve.textContent = ok ? '成　功' : '失　败';
+    ve.className = 'ci-verdict '+(ok?'success':'fail');
+    ov.style.display='flex';
+    setTimeout(()=>{ ov.style.display='none'; resolve({success:ok,score}); }, 2300);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  STATE CHANGES
+// ─────────────────────────────────────────────
+function applyChanges(game, sc) {
+  if(!sc) return;
+  if(sc.player_stats) Object.entries(sc.player_stats).forEach(([k,v])=>{
+    if(game.player.stats[k]!==undefined)
+      game.player.stats[k]=Math.min(100,Math.max(0,game.player.stats[k]+Number(v)));
+  });
+  if(sc.npc_affection) Object.entries(sc.npc_affection).forEach(([name,d])=>{
+    const n=game.npcs.find(x=>x.name===name);
+    if(n) n.affection=Math.min(100,Math.max(0,(n.affection||50)+Number(d)));
+  });
+  if(sc.npc_known_events) Object.entries(sc.npc_known_events).forEach(([name,evts])=>{
+    const n=game.npcs.find(x=>x.name===name);
+    if(n){ n.knownEvents=n.knownEvents||[]; evts.forEach(e=>{ if(!n.knownEvents.includes(e)) n.knownEvents.push(e); }); if(n.knownEvents.length>20) n.knownEvents=n.knownEvents.slice(-20); }
+  });
+  if(sc.player_tags) sc.player_tags.forEach(tag=>{
+    const t=tag.slice(1).replace(/[\[\]]/g,'');
+    if(tag.startsWith('+')){ if(!game.player.tags.includes(t)) game.player.tags.push(t); }
+    else if(tag.startsWith('-')){ game.player.tags=game.player.tags.filter(x=>x!==t); }
+  });
+  if(sc.chapter) game.chapter=sc.chapter;
+  // 5: AI自动发现新角色
+  if(sc.new_npcs&&Array.isArray(sc.new_npcs)){
+    sc.new_npcs.forEach(n=>{
+      if(n.name&&!game.npcs.find(x=>x.name===n.name)){
+        game.npcs.push({id:uid(),name:n.name,description:n.description||'',
+          diaryStyle:'',weiboStyle:'',affection:50,knownEvents:[],autoAdded:true});
+      }
+    });
+  }
+}
+
+// ─────────────────────────────────────────────
+//  SYSTEM PROMPT
+// ─────────────────────────────────────────────
+const DEF_STYLE={tone:'细腻抒情',wordCount:'standard',danmaku:false,realism:3,romanceRatio:3,romanceDetail:3,pace:3,adultContent:'暗示'};
+
+function styleBlock(st){
+  if(!st) return '';
+  const toneMap={
+    细腻抒情:'文风细腻，注重内心与感官细节',
+    轻喜剧:'基调轻松幽默，不失真实',
+    严肃沉重:'叙述厚重，不回避冲突后果',
+    日常温馨:'基调温和，注重生活细节',
+    张力紧绷:'充满张力，对话锋利，情绪对抗感强',
+    冲突激烈:'以激烈冲突驱动，矛盾直接爆发，博弈对立鲜明'
+  };
+  const wdMap={short:'每次100-200字',standard:'每次200-350字',detailed:'每次350-500字',long:'每次500-700字'};
+  const lines=[];
+  lines.push(`基调：${toneMap[st.tone]||st.tone}`);
+  lines.push(`字数：${wdMap[st.wordCount||'standard']}`);
+  if((st.pace||3)!==3) lines.push(`节奏：${st.pace<3?'偏慢':'偏快'}(${st.pace}/5)`);
+  if((st.realism||3)!==3) lines.push(`写实度：${st.realism<3?'偏戏剧化':'偏写实'}(${st.realism}/5)`);
+  if((st.romanceRatio||3)!==3) lines.push(`浪漫比重：${st.romanceRatio}/5`);
+  if((st.romanceDetail||3)!==3) lines.push(`浪漫细腻度：${st.romanceDetail}/5`);
+  if(st.adultContent&&st.adultContent!=='暗示') lines.push(`亲密内容：${st.adultContent==='回避'?'一律回避':'可详写'}`);
+  return `\n【叙述风格】${lines.join('；')}`;
+}
+
+function buildSys(g) {
+  const stats=Object.entries(g.player.stats||{}).map(([k,v])=>`${k}:${v}`).join('、');
+  const tags=(g.player.tags||[]).join('、')||'无';
+  // knownEvents每条限20字，最多8条
+  const npcs=(g.npcs||[]).map(n=>{
+    const events=(n.knownEvents||[]).slice(-8).map(e=>e.slice(0,20)).join('、')||'无';
+    const memo=n.characterMemo?`；记忆：${n.characterMemo.slice(0,80)}`:'';
+    const gender=n.gender?`；性别：${n.gender}`:'';
+    return`【${n.name}】${(n.description||'').slice(0,60)}${gender}；好感${n.affection||50}；事件：${events}${memo}`;
+  }).join('\n');
+  const st=g.style||DEF_STYLE;
+  const wdRange={short:'100-200',standard:'200-350',detailed:'350-500',long:'500-700'}[st.wordCount||'standard']||'200-350';
+  return `你是沉浸式互动小说叙述者。${styleBlock(st)}
+
+【世界观】
+${g.worldSetting}
+
+【我：${g.player.name}】背景：${(g.player.background||'未设定').slice(0,100)}；属性：${stats||'无'}；标签：${tags}
+
+【NPC】
+${npcs||'暂无'}
+
+【规则】
+好感度：出场NPC必须更新npc_affection（友善+5~15，深度互动+15~25，冲突-5~25）禁止全0。
+判定难度：普通≤40，有挑战50~60，极难70~80，近乎不可能85+。
+禁止：代替玩家行动/预设玩家心情；选项须是"可以做"非"已做"；每次只推进一个场景；叙述停在决策点；三选项有明显差异。
+
+【生成前必须执行的自检——不通过则重写】
+① 本轮narrative是否描述了上一轮已有的场景/对话/动作？→ 是则删掉重写
+② narrative开头是否与上一轮开头相似（同样的环境描写、同样的人物动作）？→ 是则换切入角度
+③ 三个options是否与上一轮高度相似？→ 是则换方向
+④ scene_advance一句话：本轮比上一轮推进了什么？写完这句话后再写narrative，确保真的有推进。
+
+格式：用\\n\\n分段，对话独立成段。
+
+【JSON格式，不输出其他内容】：
+{"scene_advance":"本轮推进了什么（内部校验用，一句话）","narrative":"叙述（${wdRange}字，\\n\\n分段）","options":["选项1(≤14字)","选项2(≤14字)","选项3(≤14字)"],"check":null或{"required":"属性名","difficulty":数值},"state_changes":{"player_stats":{},"npc_affection":{},"npc_known_events":{},"player_tags":[],"chapter":null,"new_npcs":[]}}`;
+}
+// ─────────────────────────────────────────────
+async function callAI(sys, msgs, jsonMode=true) {
+  const {provider,keys,models}=S.settings;
+  const key=keys[provider];
+  if(!key) throw new Error('请先在设置中填写 API Key');
+  const model=models[provider];
+  if(provider==='deepseek'||provider==='openai') return callOAI(provider,key,model,sys,msgs,jsonMode);
+  if(provider==='claude') return callClaude(key,model,sys,msgs);
+  if(provider==='gemini') return callGemini(key,model,sys,msgs,jsonMode);
+}
+
+async function withTimeout(promise, ms=35000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(()=>ctrl.abort(), ms);
+  try {
+    // pass signal via a side-channel for fetch calls
+    globalThis._abortSignal = ctrl.signal;
+    const r = await promise;
+    clearTimeout(id);
+    globalThis._abortSignal = null;
+    return r;
+  } catch(e) {
+    clearTimeout(id);
+    globalThis._abortSignal = null;
+    if(e.name==='AbortError') throw new Error('请求超时（35秒），请检查网络后重试');
+    throw e;
+  }
+}
+
+async function callOAI(prov, key, model, sys, msgs, jsonMode) {
+  const url=prov==='deepseek'?'https://api.deepseek.com/v1/chat/completions':'https://api.openai.com/v1/chat/completions';
+  const body={model,messages:[{role:'system',content:sys},...msgs],temperature:.85,max_tokens:1500,
+    frequency_penalty:0.4, presence_penalty:0.3};
+  if(jsonMode) body.response_format={type:'json_object'};
+  const r=await fetch(url,{
+    method:'POST', signal: globalThis._abortSignal,
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify(body)
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||'HTTP '+r.status); }
+  return (await r.json()).choices[0].message.content;
+}
+
+async function callClaude(key, model, sys, msgs) {
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST', signal: globalThis._abortSignal,
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model,system:sys,messages:msgs,max_tokens:1500,temperature:.85})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||'HTTP '+r.status); }
+  return (await r.json()).content[0].text;
+}
+
+async function callGemini(key, model, sys, msgs, jsonMode) {
+  const contents=msgs.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
+  const genCfg={temperature:.85,maxOutputTokens:1500};
+  if(jsonMode) genCfg.responseMimeType='application/json';
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,{
+    method:'POST', signal: globalThis._abortSignal,
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents,generationConfig:genCfg})
+  });
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error?.message||'HTTP '+r.status); }
+  return (await r.json()).candidates[0].content.parts[0].text;
+}
+
+function parseRes(raw) {
+  try {
+    const c=raw.replace(/```json\n?|```\n?/g,'').trim();
+    const p=JSON.parse(c);
+    return {narrative:p.narrative||'……',options:p.options||[],check:p.check||null,sc:p.state_changes||{}};
+  } catch(e) {
+    return {narrative:raw.slice(0,500),options:['继续……'],check:null,sc:{}};
+  }
+}
+
+// ─────────────────────────────────────────────
+//  CHARACTER PAGE
+// ─────────────────────────────────────────────
+let _memoExpanded  = {};
+let _memoEditing   = {};
+let _descExpanded  = {};
+let _playerMemoExp = false;
+let _playerMemoEdt = false;
+
+function renderCharacter() {
+  const g=cg();
+  const pp=document.getElementById('player-panel');
+  const nl=document.getElementById('npc-list');
+  if(!g){ pp.innerHTML=`<div class="empty-state">尚未选择游戏</div>`; nl.innerHTML=''; return; }
+
+  // 我的面板
+  const statsHtml=Object.entries(g.player.stats||{}).map(([n,v])=>`
+    <div class="stat-item">
+      <div class="s-name">${esc(n)}</div>
+      <div class="s-bar-row">
+        <div class="s-bar"><div class="s-fill" style="width:${v}%"></div></div>
+        <div class="s-val">${v}</div>
+      </div>
+    </div>`).join('');
+  const tagsHtml=(g.player.tags||[]).map(t=>`<span class="p-tag">${esc(t)}</span>`).join('');
+  const playerMemo = g.player.characterMemo||'';
+  let playerMemoHtml='';
+  if(_playerMemoExp){
+    if(_playerMemoEdt){
+      playerMemoHtml=`<div class="memo-body"><textarea class="memo-edit-area" id="player-memo-edit">${esc(playerMemo)}</textarea>
+        <div class="memo-actions"><button class="memo-btn" onclick="playerMemoEditCancel()">取消</button><button class="memo-btn primary" onclick="playerMemoEditSave()">保存</button></div></div>`;
+    } else {
+      playerMemoHtml=`<div class="memo-body"><div class="memo-text">${playerMemo?esc(playerMemo):'（尚无记录，游玩后自动追加，或点刷新手动生成）'}</div>
+        <div class="memo-actions">
+          <button class="memo-btn" onclick="playerMemoEditStart()">编辑</button>
+          <button class="memo-btn" onclick="playerMemoRefresh()">刷新</button>
+        </div></div>`;
+    }
+  }
+  pp.innerHTML=`<div class="player-card">
+    <div class="player-name-row"><span class="player-name">${esc(g.player.name)}</span><span class="player-bg-text">${esc(g.player.background||'')}</span></div>
+    <div class="stats-grid">${statsHtml}</div>
+    ${tagsHtml?`<div class="player-tags" style="margin-bottom:10px">${tagsHtml}</div>`:''}
+    <div class="memo-row">
+      <div class="memo-hdr" onclick="playerMemoToggle()">
+        <div class="memo-hdr-left"><span class="memo-label">我的记忆备注</span>${playerMemo?'<span class="memo-badge">已记录</span>':''}</div>
+        <span class="memo-toggle">${_playerMemoExp?'收起':'展开'}</span>
+      </div>
+      ${!_playerMemoExp&&playerMemo?`<div class="memo-preview">${esc(playerMemo)}</div>`:''}
+      ${playerMemoHtml}
+    </div>
+  </div>`;
+
+  if(!g.npcs||!g.npcs.length){ nl.innerHTML=`<div class="empty-state" style="padding:20px 0">暂无角色</div>`; return; }
+  nl.innerHTML=g.npcs.map(n=>renderNpcCard(n)).join('');
+}
+
+function playerMemoToggle(){ _playerMemoExp=!_playerMemoExp; if(!_playerMemoExp)_playerMemoEdt=false; renderCharacter(); }
+function playerMemoEditStart(){ _playerMemoEdt=true; renderCharacter(); setTimeout(()=>{ const t=document.getElementById('player-memo-edit'); if(t){t.focus();t.selectionStart=t.value.length;} },50); }
+function playerMemoEditCancel(){ _playerMemoEdt=false; renderCharacter(); }
+function playerMemoEditSave(){ const g=cg(); if(!g) return; const t=document.getElementById('player-memo-edit'); if(t){ g.player.characterMemo=t.value.trim(); save(); } _playerMemoEdt=false; renderCharacter(); }
+
+async function playerMemoRefresh(){
+  const g=cg(); if(!g) return;
+  const player=g.player;
+  const existing=player.characterMemo||'';
+  const recentActions=(g.narrativeHistory||[]).filter(b=>b.type==='action').slice(-8).map(b=>`玩家：${b.content}`).join('\n');
+  const recentNarr=(g.narrativeHistory||[]).filter(b=>b.type==='narrative'||b.type==='check').slice(-6).map(b=>b.content||'').join('\n').slice(0,1000);
+  if(!recentActions){ toast('暂无行动记录'); return; }
+  toast('生成中……');
+  try{
+    const prompt=`你是角色记忆助手。
+玩家角色：${player.name}，${player.background||''}
+现有记忆：${existing||'（无）'}
+最近玩家行动：\n${recentActions}
+最近剧情：${recentNarr}
+
+任务：从以上行动中提取体现玩家性格/决策风格/行为倾向的1句话追加条目，≤40字。
+如果没有值得记录的新内容，输出"无"。只输出追加条目本身。`;
+    const raw=await callAI('直接输出追加内容，无则输出"无"。',[{role:'user',content:prompt}],false);
+    const addition=raw.replace(/```[\s\S]*?```/g,'').trim();
+    if(addition && addition!=='无' && addition.length>2){
+      const sep=existing?'；':'';
+      player.characterMemo=(existing+sep+addition).slice(-300);
+      save(); toast('已追加新记录');
+    } else { toast('没有新信息可追加'); }
+  }catch(e){ toast('失败: '+e.message); }
+  renderCharacter();
+}
+
+function renderNpcCard(n){
+  const isExpanded = _memoExpanded[n.id];
+  const isEditing  = _memoEditing[n.id];
+  const isDescExp  = _descExpanded[n.id];
+  const hasMemo    = !!(n.characterMemo);
+  const isUpdating = !!(n._memoUpdating);
+  const hasLongDesc= (n.description||'').length > 30;
+
+  const eventTagsHtml=(n.knownEvents||[]).length
+    ?`<div class="event-tags" style="margin-bottom:6px">${n.knownEvents.slice(-5).map(e=>`<span class="event-tag">${esc(e)}</span>`).join('')}</div>`:'' ;
+
+  // 简介展开/折叠
+  const descHtml = hasLongDesc
+    ? (isDescExp
+        ? `<div style="font-size:12px;color:var(--text2);font-family:'Noto Sans SC',sans-serif;line-height:1.7;margin-bottom:8px;cursor:pointer" onclick="descToggle('${n.id}')">${esc(n.description)} <span style="color:var(--text3)">收起</span></div>`
+        : `<div style="font-size:12px;color:var(--text2);font-family:'Noto Sans SC',sans-serif;line-height:1.7;margin-bottom:8px;cursor:pointer;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical" onclick="descToggle('${n.id}')">${esc(n.description)} <span style="color:var(--gold);font-size:11px">展开</span></div>`)
+    : (n.description ? `<div style="font-size:12px;color:var(--text2);font-family:'Noto Sans SC',sans-serif;line-height:1.7;margin-bottom:8px">${esc(n.description)}</div>` : '');
+
+  let memoBodyHtml='';
+  if(isExpanded){
+    memoBodyHtml=isEditing
+      ?`<div class="memo-body"><textarea class="memo-edit-area" id="memo-edit-${n.id}">${esc(n.characterMemo||'')}</textarea>
+          <div class="memo-actions"><button class="memo-btn" onclick="memoEditCancel('${n.id}')">取消</button><button class="memo-btn primary" onclick="memoEditSave('${n.id}')">保存</button></div></div>`
+      :`<div class="memo-body"><div class="memo-text">${hasMemo?esc(n.characterMemo):'（尚未生成，继续游玩后自动更新）'}</div>
+          <div class="memo-actions">${hasMemo?`<button class="memo-btn" onclick="memoEditStart('${n.id}')">编辑</button>`:''}<button class="memo-btn" onclick="memoRefresh('${n.id}')">刷新</button></div></div>`;
+  }
+
+  const badgeHtml=isUpdating?`<span class="memo-badge updating">更新中…</span>`:hasMemo?`<span class="memo-badge">已记录</span>`:'';
+  const previewHtml=!isExpanded&&hasMemo?`<div class="memo-preview">${esc(n.characterMemo)}</div>`:'';
+
+  return `<div class="npc-card" id="npc-card-${n.id}">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
+      <div><span class="npc-name">${esc(n.name)}</span>${n.autoAdded?'<span style="font-size:10px;color:var(--text3);margin-left:5px">剧情</span>':''}</div>
+      <button style="background:transparent;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 0 0 8px;line-height:1" onclick="npcDelFromChar('${n.id}')">×</button>
+    </div>
+    ${descHtml}
+    <div class="affection-row">
+      <span class="aff-label">好感度</span>
+      <div class="aff-bar"><div class="aff-fill" style="width:${n.affection||50}%"></div></div>
+      <span class="aff-num">${n.affection||50}</span>
+    </div>
+    ${eventTagsHtml}
+    <div class="memo-row">
+      <div class="memo-hdr" onclick="memoToggle('${n.id}')">
+        <div class="memo-hdr-left"><span class="memo-label">人设记忆</span>${badgeHtml}</div>
+        <span class="memo-toggle">${isExpanded?'收起':'展开'}</span>
+      </div>
+      ${previewHtml}
+      ${memoBodyHtml}
+    </div>
+  </div>`;
+}
+
+function descToggle(npcId){ _descExpanded[npcId]=!_descExpanded[npcId]; renderCharacter(); }
+function npcDelFromChar(npcId){
+  const g=cg(); if(!g) return;
+  const npc=g.npcs.find(n=>n.id===npcId); if(!npc) return;
+  if(!confirm(`确认删除角色「${npc.name}」？`)) return;
+  g.npcs=g.npcs.filter(n=>n.id!==npcId); save(); renderCharacter();
+}
+
+function memoToggle(npcId){ _memoExpanded[npcId]=!_memoExpanded[npcId]; if(!_memoExpanded[npcId]) _memoEditing[npcId]=false; renderCharacter(); }
+function memoEditStart(npcId){ _memoEditing[npcId]=true; renderCharacter(); setTimeout(()=>{ const t=document.getElementById('memo-edit-'+npcId); if(t){t.focus();t.selectionStart=t.value.length;} },50); }
+function memoEditCancel(npcId){ _memoEditing[npcId]=false; renderCharacter(); }
+function memoEditSave(npcId){
+  const g=cg(); if(!g) return;
+  const npc=g.npcs.find(n=>n.id===npcId); if(!npc) return;
+  const t=document.getElementById('memo-edit-'+npcId);
+  if(t){ npc.characterMemo=t.value.trim().slice(0,200); save(); }
+  _memoEditing[npcId]=false; renderCharacter();
+}
+async function memoRefresh(npcId){
+  const g=cg(); if(!g) return;
+  const npc=g.npcs.find(n=>n.id===npcId); if(!npc) return;
+  npc._memoUpdating=true; save(); renderCharacter();
+  const recentText=(g.narrativeHistory||[])
+    .filter(b=>b.type==='narrative'||b.type==='check'||b.type==='action')
+    .slice(-10).map(b=>b.content||'').join('\n').slice(0,2000);
+  try{
+    const existing=npc.characterMemo||'';
+    const prompt=`你是角色记忆助手。
+现有记忆：${existing||'（无）'}
+角色：${npc.name}，${npc.description||''}
+最近剧情：${recentText}
+
+任务：从剧情中提取关于【${npc.name}】尚未被记录的新信息（性格表现、关键互动、态度变化），写1-2句追加条目，≤60字。
+如果没有新信息，输出"无"。只输出追加条目本身。`;
+    const raw=await callAI('直接输出追加内容，无则输出"无"。',[{role:'user',content:prompt}],false);
+    const addition=raw.replace(/```[\s\S]*?```/g,'').trim();
+    if(addition && addition!=='无' && addition.length>2){
+      const sep=existing?'；':'';
+      npc.characterMemo=(existing+sep+addition).slice(-400);
+      toast(npc.name+' 记忆已追加');
+    } else {
+      toast('没有新信息可追加');
+    }
+  }catch(e){ toast('更新失败: '+e.message); }
+  npc._memoUpdating=false; save(); renderCharacter();
+}
+
+// ─────────────────────────────────────────────
+//  FRAGMENT PAGE
+// ─────────────────────────────────────────────
+let fragF='all';
+
+function renderFragments() {
+  const g=cg();
+  const fl=document.getElementById('fragment-list');
+  const fb=document.getElementById('frag-filters');
+  if(!g){ fl.innerHTML=`<div class="empty-state">尚未选择游戏</div>`; fb.innerHTML=''; return; }
+  const frags=g.fragments||[];
+  const allTypes=['all',...new Set(frags.map(f=>f.type))];
+  const typeLabels={all:'全部',...FRAG_LABELS};
+  fb.innerHTML=allTypes.map(t=>`<div class="frag-filter ${fragF===t?'active':''}" onclick="setFragF('${t}')">${typeLabels[t]||t}</div>`).join('');
+  const filtered=fragF==='all'?frags:frags.filter(f=>f.type===fragF);
+  if(!filtered.length){
+    fl.innerHTML=`<div class="empty-state"><div class="empty-icon">🎴</div>还没有碎片<br>点击「生成新碎片」开始</div>`; return;
+  }
+  fl.innerHTML=[...filtered].reverse().map(f=>{
+    const safeContent=esc(f.content).replace(/\n/g,'<br>');
+    return`<div class="fragment-card">
+      <div class="frag-header">
+        <div class="frag-meta"><span class="frag-npc">${esc(f.npcName||'')}</span><span class="frag-type-badge">${FRAG_LABELS[f.type]||f.type}</span></div>
+        <span class="frag-chapter-ref">${esc(f.chapterRef||'')}</span>
+      </div>
+      <div class="frag-content" style="white-space:normal">${safeContent}</div>
+    </div>`;
+  }).join('');
+}
+
+function setFragF(f){ fragF=f; renderFragments(); }
+
+// ─────────────────────────────────────────────
+//  FRAGMENT GENERATION MODAL
+// ─────────────────────────────────────────────
+let fgState = {npcId:null, type:'diary'};
+
+function openFragGen() {
+  const g=cg();
+  if(!g){ toast('请先选择游戏'); return; }
+  if(!g.narrativeHistory||!g.narrativeHistory.length){ toast('先进行一些游戏再生成碎片'); return; }
+  fgState={npcId:g.npcs[0]?.id||null,type:'diary'};
+  const ns=document.getElementById('fg-npc-sel');
+  ns.innerHTML=g.npcs.map(n=>`<div class="npc-sel-btn ${fgState.npcId===n.id?'active':''}" data-id="${n.id}" onclick="selFgNpc('${n.id}')">${esc(n.name)}</div>`).join('');
+  document.querySelectorAll('.frag-type-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('[data-type="diary"]').classList.add('active');
+  document.getElementById('frag-modal').style.display='flex';
+}
+function closeFgModal(){ document.getElementById('frag-modal').style.display='none'; }
+function fgBgClick(e){ if(e.target===document.getElementById('frag-modal')) closeFgModal(); }
+function selFgNpc(id){ fgState.npcId=id; document.querySelectorAll('.npc-sel-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id)); }
+function selFgType(t){ fgState.type=t; document.querySelectorAll('.frag-type-btn').forEach(b=>b.classList.toggle('active',b.dataset.type===t)); }
+
+async function generateFragment() {
+  const g=cg(); if(!g) return;
+  const npc=g.npcs.find(n=>n.id===fgState.npcId);
+  const needNpc=['diary','weibo','memory','their_view'].includes(fgState.type);
+  if(needNpc&&!npc){ toast('请选择角色'); return; }
+  closeFgModal(); toast('生成中……');
+
+  const recentNarr=(g.narrativeHistory||[]).filter(b=>b.type==='narrative'||b.type==='check').slice(-10).map(b=>b.content||'').join('\n\n');
+  const allNpcsInfo=(g.npcs||[]).map(n=>`${n.name}（${n.gender||'性别未知'}，好感${n.affection||50}，${(n.description||'').slice(0,30)}）`).join('、');
+  const npcInfo=npc?`焦点角色：${npc.name}（${npc.gender||'性别未知'}），${npc.description}；对玩家好感${npc.affection}；已知事件：${(npc.knownEvents||[]).slice(-5).join('、')||'无'}${npc.characterMemo?'；记忆：'+npc.characterMemo:''}`:'' ;
+
+  const TYPE_PROMPTS={
+    diary:`以${npc?.name}的第一人称写当天日记，风格${npc?.diaryStyle||'真实内省'}，300字左右。严格按照角色的性别（${npc?.gender||'性别未知'}）使用正确的人称和表达。`,
+    weibo:`以${npc?.name}（${npc?.gender||'性别未知'}）口吻写一条朋友圈，风格${npc?.weiboStyle||'简短意有所指'}。其他角色（${allNpcsInfo}）可以评论，挑1-2个写评论，注意每个人的性别。格式：【正文】……\n💬角色名：评论`,
+    forum:`写一个论坛帖讨论玩家${g.player.name}最近的行动，3-5楼，八卦视角。出场人物有：${allNpcsInfo}，注意每个人的性别，可安排他们参与讨论或被讨论，路人可有误解猜测。`,
+    memory:`写一段诗化「命运记忆碎片」，旁观视角，意象化语言，300字，偏文学性。`,
+    gossip:`写一封在NPC间流传的八卦小纸条，内容关于玩家${g.player.name}，涉及的人物有：${allNpcsInfo}，注意每个人的性别，可引入多方视角和议论，轻松八卦，200字。`,
+    their_view:`以${npc?.name}（${npc?.gender||'性别未知'}）的内心视角，写TA如何看待玩家${g.player.name}，要有主观滤镜和情感色彩，使用符合该角色性别的自称和措辞，300字。`
+  };
+
+  const userContent=`世界观背景：${(g.worldSetting||'').slice(0,200)}\n\n最近剧情：\n${recentNarr}\n\n${npcInfo?npcInfo+'\n\n':''}全体角色：${allNpcsInfo}\n玩家：${g.player.name}（${g.player.background||''}）\n\n任务：${TYPE_PROMPTS[fgState.type]}\n\n直接输出内容，不要JSON，不要额外说明。`;
+  const sys=`你是互动小说辅助叙述者，直接输出内容，不加任何格式标记。写作时严格遵守每个角色的性别，不得混淆。`;
+
+  try {
+    const raw=await withTimeout(callAI(sys,[{role:'user',content:userContent}], false));
+    const content=raw.replace(/```[\s\S]*?```/g,'').trim();
+    if(!content){ toast('生成内容为空，请重试'); return; }
+    const frag={ id:uid(), npcId:npc?.id||null, npcName:npc?.name||'路人', type:fgState.type, content, createdAt:new Date().toISOString(), chapterRef:g.chapter };
+    g.fragments=g.fragments||[];
+    g.fragments.push(frag);
+    save(); toast('碎片已生成'); switchTab('fragment');
+  } catch(e){ toast('生成失败: '+e.message); }
+}
+
+// ─────────────────────────────────────────────
+//  GAME SETTINGS MODAL
+// ─────────────────────────────────────────────
+let _gsetTab='style';
+
+function openGset(){
+  const g=cg(); if(!g){toast('请先选择游戏');return;}
+  _gsetTab='style';
+  document.querySelectorAll('.mtab').forEach(t=>t.classList.toggle('active',t.dataset.gt==='style'));
+  document.getElementById('gset-modal').style.display='flex';
+  renderGsetBody();
+}
+function closeGset(){ document.getElementById('gset-modal').style.display='none'; save(); }
+function switchGsetTab(t){
+  _gsetTab=t;
+  document.querySelectorAll('.mtab').forEach(b=>b.classList.toggle('active',b.dataset.gt===t));
+  renderGsetBody();
+}
+
+function renderGsetBody(){
+  const g=cg(); if(!g) return;
+  g.style=g.style||{...DEF_STYLE};
+  const st=g.style;
+  const body=document.getElementById('gset-body');
+
+  if(_gsetTab==='style'){
+    const row=(lbl,hint,ctrl)=>`<div class="style-row"><div class="style-left"><div class="style-lbl">${lbl}</div>${hint?`<div class="style-hint">${hint}</div>`:''}</div>${ctrl}</div>`;
+    const sel=(key,opts)=>`<select class="style-select" onchange="gsSet('${key}',this.value)">${opts.map(([v,l])=>`<option value="${v}"${st[key]===v?' selected':''}>${l}</option>`).join('')}</select>`;
+    const rng=(key,min,max)=>`<div style="display:flex;align-items:center;gap:6px"><input type="range" style="-webkit-appearance:none;width:90px;height:4px;border-radius:2px;background:var(--bg3);outline:none" min="${min}" max="${max}" value="${st[key]||3}" oninput="gsSet('${key}',+this.value);this.nextElementSibling.textContent=this.value"><span style="font-size:12px;color:var(--gold);width:12px">${st[key]||3}</span></div>`;
+    const tgl=(key)=>`<div class="toggle-wrap ${st[key]?'on':''}" onclick="gsToggle('${key}',this)"></div>`;
+    body.innerHTML=`<div class="gset-section">
+      ${row('叙述基调','',sel('tone',[['细腻抒情','细腻抒情'],['张力紧绷','张力紧绷'],['冲突激烈','冲突激烈'],['轻喜剧','轻喜剧'],['严肃沉重','严肃沉重'],['日常温馨','日常温馨']]))}
+      ${row('叙述字数','',sel('wordCount',[['short','简短100-200'],['standard','标准200-350'],['detailed','详细350-500'],['long','长篇500-700']]))}
+      ${row('博弈写实度','低=戏剧化，高=代价真实',rng('realism',1,5))}
+      ${row('叙述节奏','低=慢镜细写，高=快节奏',rng('pace',1,5))}
+      ${row('浪漫比重','低=极少，高=核心主轴',rng('romanceRatio',1,5))}
+      ${row('浪漫细腻度','低=点到为止，高=极细腻',rng('romanceDetail',1,5))}
+      ${row('成人内容','',sel('adultContent',[['回避','回避'],['暗示','暗示'],['详写','详写']]))}
+      <div class="wizard-nav"><div class="btn-primary" onclick="closeGset()">完成</div></div>
+    </div>`;
+  } else if(_gsetTab==='chars'){
+    const npcHtml=(g.npcs||[]).map(n=>`<div class="npc-item">
+      <div class="npc-item-hdr">
+        <span class="npc-item-name">${esc(n.name||'未命名')}${n.autoAdded?'<span style="font-size:10px;color:var(--text3);margin-left:4px">剧情</span>':''}</span>
+        <button class="rm-btn" onclick="gsDelNpc('${n.id}')">×</button>
+      </div>
+      <div class="form-group"><label class="form-label">姓名</label><input class="form-input" value="${esc(n.name||'')}" oninput="gsUpdNpc('${n.id}','name',this.value)"></div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <div style="flex:2"><label class="form-label">描述</label><input class="form-input" value="${esc(n.description||'')}" oninput="gsUpdNpc('${n.id}','description',this.value)"></div>
+        <div style="flex:1"><label class="form-label">性别</label><select class="form-input" style="padding:12px 8px" onchange="gsUpdNpc('${n.id}','gender',this.value)"><option value="" ${!n.gender?'selected':''}>未知</option><option value="男" ${n.gender==='男'?'selected':''}>男</option><option value="女" ${n.gender==='女'?'selected':''}>女</option><option value="其他" ${n.gender==='其他'?'selected':''}>其他</option></select></div>
+      </div>
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">日记风格</label><input class="form-input" value="${esc(n.diaryStyle||'')}" placeholder="例：克制、多用比喻" oninput="gsUpdNpc('${n.id}','diaryStyle',this.value)"></div>
+    </div>`).join('');
+    body.innerHTML=`<div class="gset-section">
+      <div class="npc-builder" id="gs-npcs">${npcHtml||'<div class="hint-text">还没有角色</div>'}</div>
+      <div class="import-row">
+        <button class="add-btn" style="flex:1" onclick="gsAddNpc()">＋ 手动添加</button>
+        <button class="import-btn" onclick="openNpcPaste()">粘贴导入</button>
+        <button class="import-btn" onclick="document.getElementById('fi-npc').click()">📄 文件</button>
+      </div>
+      <div class="hint-text" style="margin-top:6px">「剧情」标记的角色由AI自动从故事中发现</div>
+      <div class="wizard-nav"><div class="btn-primary" onclick="closeGset()">完成</div></div>
+    </div>`;
+  } else if(_gsetTab==='world'){
+    body.innerHTML=`<div class="gset-section">
+      <div class="form-group"><label class="form-label">故事名称</label><input class="form-input" value="${esc(g.name)}" oninput="gsUpdGame('name',this.value)"></div>
+      <div class="form-group">
+        <label class="form-label">世界观设定</label>
+        <textarea class="form-input form-textarea" id="gs-world" style="min-height:130px" oninput="gsUpdGame('worldSetting',this.value)">${esc(g.worldSetting)}</textarea>
+        <div class="import-row" style="margin-top:6px">
+          <button class="import-btn" style="flex:1" onclick="document.getElementById('fi-world').click()">📄 从文件导入</button>
+        </div>
+        <div class="hint-text">修改只影响后续叙述，已有剧情不变</div>
+      </div>
+      <div class="form-group"><label class="form-label">当前章节</label><input class="form-input" value="${esc(g.chapter)}" oninput="gsUpdGame('chapter',this.value)"></div>
+      <div class="wizard-nav">
+        <div class="btn-danger" onclick="if(confirm('确认删除此存档？'))deleteGset()">删除存档</div>
+        <div class="btn-primary" onclick="closeGset()">完成</div>
+      </div>
+    </div>`;
+  }
+}
+
+function gsSet(key,val){ const g=cg(); if(!g) return; g.style=g.style||{...DEF_STYLE}; g.style[key]=val; }
+function gsToggle(key,el){ const g=cg(); if(!g) return; g.style=g.style||{...DEF_STYLE}; g.style[key]=!g.style[key]; el.classList.toggle('on',g.style[key]); }
+function gsUpdGame(key,val){ const g=cg(); if(!g) return; g[key]=val; }
+function gsUpdNpc(id,k,v){ const g=cg(); if(!g) return; const n=g.npcs.find(x=>x.id===id); if(n) n[k]=v; }
+function gsDelNpc(id){ const g=cg(); if(!g) return; g.npcs=g.npcs.filter(n=>n.id!==id); save(); renderGsetBody(); }
+function gsAddNpc(){ const g=cg(); if(!g) return; g.npcs.push({id:uid(),name:'',description:'',diaryStyle:'',weiboStyle:'',affection:50,knownEvents:[]}); save(); renderGsetBody(); }
+function deleteGset(){ const g=cg(); if(!g) return; delete S.games[S.currentId]; S.currentId=null; save(); closeGset(); switchTab('history'); }
+
+// ─────────────────────────────────────────────
+//  FILE & PASTE IMPORTS
+// ─────────────────────────────────────────────
+function handleWorldFile(e){
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    const g=cg();
+    const txt=ev.target.result;
+    if(g){ g.worldSetting=txt; save(); const ta=document.getElementById('gs-world'); if(ta) ta.value=txt; toast('世界观已导入'); }
+    else{ wzData.worldSetting=txt; const ta=document.getElementById('wz-world'); if(ta) ta.value=txt; toast('世界观已导入'); }
+  };
+  r.readAsText(f,'utf-8'); e.target.value='';
+}
+
+function openNpcPaste(){
+  document.getElementById('npc-paste-text').value='';
+  document.getElementById('npc-paste-result').innerHTML='';
+  const nav=document.getElementById('npc-paste-nav');
+  if(nav) nav.innerHTML=`<div class="btn-secondary" onclick="closeNpcPaste()">取消</div><div class="btn-primary" onclick="parseNpcPaste()">AI解析并导入</div>`;
+  // 记录打开时的上下文，防止异步期间 wizard 状态变化
+  _npcImportCtx = document.getElementById('wizard-modal').style.display !== 'none' ? 'wizard' : 'gset';
+  document.getElementById('npc-paste-modal').style.display='flex';
+}
+
+let _npcImportCtx = 'gset'; // 'wizard' | 'gset'
+
+function closeNpcPaste(){
+  document.getElementById('npc-paste-modal').style.display='none';
+  const nav=document.getElementById('npc-paste-nav');
+  if(nav) nav.innerHTML=`<div class="btn-secondary" onclick="closeNpcPaste()">取消</div><div class="btn-primary" onclick="parseNpcPaste()">AI解析并导入</div>`;
+}
+
+function onNpcPasteDone(){
+  document.getElementById('npc-paste-modal').style.display='none';
+  if(_npcImportCtx==='wizard') renderWzNpcs();
+  else renderGsetBody();
+}
+
+async function parseNpcPaste(){
+  const txt=document.getElementById('npc-paste-text').value.trim();
+  if(!txt){ toast('请先粘贴角色设定'); return; }
+  const res=document.getElementById('npc-paste-result');
+  res.innerHTML='<div class="hint-text" style="margin-top:8px">AI解析中……</div>';
+  const inWizard = _npcImportCtx === 'wizard';
+  const target = inWizard ? null : cg();
+  try{
+    const raw=await withTimeout(callAI(
+      '你是角色信息提取助手。从文本中提取所有角色，严格输出JSON数组，每项：{"name":"姓名","description":"身份性格描述","diaryStyle":"写作风格（若有）"}。不输出任何其他内容，无角色则输出[]。',
+      [{role:'user',content:'请提取以下文本中的角色信息：\n\n'+txt.slice(0,4000)}],
+      true
+    ));
+    const arr=JSON.parse(raw.replace(/```json\n?|```\n?/g,'').trim());
+    if(!arr.length){ res.innerHTML='<div class="hint-text" style="margin-top:8px;color:var(--red)">未识别到角色，请检查文本内容</div>'; return; }
+    let added=0;
+    arr.forEach(n=>{
+      if(!n.name) return;
+      const pool = target ? target.npcs : wzData.npcs;
+      if(!pool.find(x=>x.name===n.name)){
+        const npc={id:uid(),name:n.name,description:n.description||'',diaryStyle:n.diaryStyle||'',weiboStyle:'',affection:50,knownEvents:[],characterMemo:''};
+        if(target){ target.npcs.push(npc); save(); }
+        else wzData.npcs.push(npc);
+        added++;
+      }
+    });
+    const names=arr.map(n=>n.name).join('、');
+    res.innerHTML=`<div class="npc-imported">已识别 ${arr.length} 个角色：${esc(names)}<br>新增 ${added} 个（重名已跳过）</div>`;
+    const nav=document.getElementById('npc-paste-nav');
+    if(nav) nav.innerHTML=`<div class="btn-primary" onclick="onNpcPasteDone()">完成</div>`;
+    if(target) renderGsetBody(); else renderWzNpcs();
+  }catch(err){
+    res.innerHTML=`<div class="hint-text" style="margin-top:8px;color:var(--red)">解析失败：${esc(err.message)}</div>`;
+  }
+}
+
+async function handleNpcFile(e){
+  const f=e.target.files[0]; if(!f) return;
+  // 文件选取时立刻锁定上下文
+  _npcImportCtx = document.getElementById('wizard-modal').style.display !== 'none' ? 'wizard' : 'gset';
+  const r=new FileReader();
+  r.onload=async ev=>{
+    document.getElementById('npc-paste-text').value=ev.target.result;
+    document.getElementById('npc-paste-result').innerHTML='<div class="hint-text" style="margin-top:8px">AI解析中……</div>';
+    const nav=document.getElementById('npc-paste-nav');
+    if(nav) nav.innerHTML=`<div class="btn-secondary" onclick="closeNpcPaste()">取消</div>`;
+    document.getElementById('npc-paste-modal').style.display='flex';
+    await parseNpcPaste();
+  };
+  r.readAsText(f,'utf-8'); e.target.value='';
+}
+function renderSettings() {
+  const {provider,keys,models}=S.settings;
+  document.querySelectorAll('.provider-btn').forEach(b=>b.classList.toggle('active',b.dataset.p===provider));
+  document.getElementById('api-key-input').value=keys[provider]||'';
+  document.getElementById('key-hint').textContent=KEY_HINTS[provider]||'';
+  const sel=document.getElementById('model-select');
+  sel.innerHTML=(MODELS[provider]||[]).map(m=>`<option value="${m}" ${models[provider]===m?'selected':''}>${m}</option>`).join('');
+}
+function deleteGame(id){
+  const g=S.games[id]; if(!g) return;
+  if(!confirm(`删除「${g.name}」？此操作不可撤销。`)) return;
+  delete S.games[id]; if(S.currentId===id) S.currentId=null; save(); renderHistory();
+}
+function selectProvider(p){ S.settings.provider=p; save(); renderSettings(); }
+function saveApiKey(){ S.settings.keys[S.settings.provider]=document.getElementById('api-key-input').value.trim(); save(); }
+function saveModel(){ S.settings.models[S.settings.provider]=document.getElementById('model-select').value; save(); }
+
+// ─────────────────────────────────────────────
+//  NEW GAME WIZARD
+// ─────────────────────────────────────────────
+let wzStep=0, wzData={};
+const WZ_TITLES=['世界观设定','玩家角色','登场人物'];
+let emojiIdx=0;
+
+function openWizard(){
+  wzStep=0;
+  wzData={name:'',emoji:'🎭',worldSetting:'',player:{name:'',background:'',stats:[{name:'魅力',value:60},{name:'智谋',value:60},{name:'武力',value:50},{name:'运气',value:50}],tags:[]},npcs:[]};
+  document.getElementById('wizard-modal').style.display='flex';
+  renderWz();
+}
+function wzBgClick(e){ if(e.target===document.getElementById('wizard-modal')) closeWz(); }
+function closeWz(){ document.getElementById('wizard-modal').style.display='none'; }
+
+function renderWz(){
+  document.getElementById('wz-steps').innerHTML=WZ_TITLES.map((_,i)=>`<div class="wz-step ${i<=wzStep?'done':''}"></div>`).join('');
+  const body=document.getElementById('wz-body');
+
+  if(wzStep===0){
+    body.innerHTML=`
+      <div class="modal-title">${WZ_TITLES[0]}</div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">故事名称</label>
+          <div style="display:flex;gap:8px">
+            <input class="form-input" id="wz-name" placeholder="给这个故事起个名字" value="${esc(wzData.name)}" style="flex:1">
+            <div class="form-input" id="wz-emoji" style="width:52px;text-align:center;font-size:22px;cursor:pointer;flex-shrink:0" onclick="pickEmoji()">${wzData.emoji}</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">世界观 / 背景设定</label>
+          <textarea class="form-input form-textarea" id="wz-world" placeholder="描述故事的世界观、背景、基本规则……&#10;可以是仙侠、现代、架空、任意设定">${esc(wzData.worldSetting)}</textarea>
+          <div class="import-row" style="margin-top:6px">
+            <button class="import-btn" style="flex:1" onclick="document.getElementById('fi-world').click()">📄 从文件导入 (.txt/.md)</button>
+          </div>
+          <div class="hint-text">导入后可继续手动补充修改</div>
+        </div>
+        <div class="wizard-nav">
+          <div class="btn-secondary" onclick="closeWz()">取消</div>
+          <div class="btn-primary" onclick="wzNext()">下一步</div>
+        </div>
+      </div>`;
+  } else if(wzStep===1){
+    body.innerHTML=`
+      <div class="modal-title">${WZ_TITLES[1]}</div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">姓名</label>
+          <input class="form-input" id="wz-pname" placeholder="你的角色名" value="${esc(wzData.player.name)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">背景</label>
+          <input class="form-input" id="wz-pbg" placeholder="身份、来历、简介……" value="${esc(wzData.player.background)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">属性</label>
+          <div class="stats-builder" id="wz-stats"></div>
+          <button class="add-btn" onclick="wzAddStat()">＋ 添加属性</button>
+          <div class="hint-text">属性值 1-100，影响判定。建议保留「运气」。</div>
+        </div>
+        <div class="wizard-nav">
+          <div class="btn-secondary" onclick="wzBack()">上一步</div>
+          <div class="btn-primary" onclick="wzNext()">下一步</div>
+        </div>
+      </div>`;
+    renderWzStats();
+  } else if(wzStep===2){
+    body.innerHTML=`
+      <div class="modal-title">${WZ_TITLES[2]}</div>
+      <div class="modal-body">
+        <div class="hint-text" style="margin-bottom:12px">添加故事中的重要角色，之后也可以在 ⚙ 中补充。</div>
+        <div class="npc-builder" id="wz-npcs"></div>
+        <div class="import-row" style="margin-top:4px">
+          <button class="add-btn" style="flex:1" onclick="wzAddNpc()">＋ 手动添加</button>
+          <button class="import-btn" onclick="openNpcPaste()">粘贴导入</button>
+          <button class="import-btn" onclick="document.getElementById('fi-npc').click()">📄 文件</button>
+        </div>
+        <div class="wizard-nav" style="margin-top:16px">
+          <div class="btn-secondary" onclick="wzBack()">上一步</div>
+          <div class="btn-primary" onclick="createGame()">开始故事</div>
+        </div>
+      </div>`;
+    renderWzNpcs();
+  }
+}
+
+function renderWzStats(){
+  const cont=document.getElementById('wz-stats'); if(!cont) return;
+  cont.innerHTML=wzData.player.stats.map((s,i)=>`
+    <div class="stat-row">
+      <input class="form-input stat-name-inp" placeholder="属性名" value="${esc(s.name)}" style="flex:1" oninput="wzUpdStat(${i},'name',this.value)">
+      <input class="form-input stat-val-inp" type="number" min="1" max="100" value="${s.value}" style="width:70px;text-align:center" oninput="wzUpdStat(${i},'value',+this.value)">
+      <button class="rm-btn" onclick="wzRmStat(${i})">×</button>
+    </div>`).join('');
+}
+
+function renderWzNpcs(){
+  const cont=document.getElementById('wz-npcs'); if(!cont) return;
+  cont.innerHTML=wzData.npcs.map((n,i)=>`
+    <div class="npc-item">
+      <div class="npc-item-hdr"><span class="npc-item-name" id="wz-npc-lbl-${i}">${esc(n.name)||'未命名'}</span><button class="rm-btn" onclick="wzRmNpc(${i})">×</button></div>
+      <div class="form-group"><label class="form-label">姓名</label><input class="form-input" placeholder="角色名" value="${esc(n.name)}" oninput="wzUpdNpc(${i},'name',this.value)"></div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <div style="flex:2"><label class="form-label">描述</label><input class="form-input" placeholder="身份、性格、与主角关系……" value="${esc(n.description)}" oninput="wzUpdNpc(${i},'description',this.value)"></div>
+        <div style="flex:1"><label class="form-label">性别</label><select class="form-input" style="padding:12px 8px" onchange="wzUpdNpc(${i},'gender',this.value)"><option value="">未知</option><option value="男" ${n.gender==='男'?'selected':''}>男</option><option value="女" ${n.gender==='女'?'selected':''}>女</option><option value="其他">其他</option></select></div>
+      </div>
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">日记风格（可选）</label><input class="form-input" placeholder="例：克制、多用比喻" value="${esc(n.diaryStyle)}" oninput="wzUpdNpc(${i},'diaryStyle',this.value)"></div>
+    </div>`).join('');
+}
+
+function wzSyncStep1(){
+  const n=document.getElementById('wz-pname'); if(n) wzData.player.name=n.value;
+  const b=document.getElementById('wz-pbg'); if(b) wzData.player.background=b.value;
+}
+
+function wzNext(){
+  if(wzStep===0){
+    const name=document.getElementById('wz-name').value.trim();
+    const world=document.getElementById('wz-world').value.trim();
+    if(!name){ toast('请填写故事名称'); return; }
+    if(!world){ toast('请填写世界观设定'); return; }
+    wzData.name=name; wzData.worldSetting=world;
+  }
+  if(wzStep===1){
+    wzSyncStep1();
+    if(!wzData.player.name.trim()){ toast('请填写角色名'); return; }
+  }
+  wzStep++; renderWz();
+}
+function wzBack(){
+  if(wzStep===1) wzSyncStep1();
+  wzStep--; renderWz();
+}
+function pickEmoji(){ emojiIdx=(emojiIdx+1)%EMOJIS.length; wzData.emoji=EMOJIS[emojiIdx]; const e=document.getElementById('wz-emoji'); if(e) e.textContent=wzData.emoji; }
+function wzUpdStat(i,k,v){ wzData.player.stats[i][k]= k==='value'?Math.min(100,Math.max(1,+v||50)):v; }
+function wzAddStat(){ wzSyncStep1(); wzData.player.stats.push({name:'',value:50}); renderWzStats(); }
+function wzRmStat(i){ wzSyncStep1(); wzData.player.stats.splice(i,1); renderWzStats(); }
+function wzUpdNpc(i,k,v){ wzData.npcs[i][k]=v; const el=document.getElementById('wz-npc-lbl-'+i); if(el&&k==='name') el.textContent=v||'未命名'; }
+function wzAddNpc(){ wzData.npcs.push({id:uid(),name:'',description:'',diaryStyle:'',weiboStyle:'',affection:50,knownEvents:[]}); renderWzNpcs(); }
+function wzRmNpc(i){ wzData.npcs.splice(i,1); renderWzNpcs(); }
+
+function createGame(){
+  wzSyncStep1();
+  const statsObj={};
+  wzData.player.stats.forEach(s=>{ if(s.name.trim()) statsObj[s.name.trim()]=Math.min(100,Math.max(1,Number(s.value)||50)); });
+  const game={
+    id:uid(), name:wzData.name, emoji:wzData.emoji,
+    createdAt:new Date().toISOString(), lastPlayedAt:new Date().toISOString(),
+    completed:false, worldSetting:wzData.worldSetting, chapter:'序章',
+    player:{name:wzData.player.name,background:wzData.player.background,stats:statsObj,tags:[]},
+    npcs:wzData.npcs, messages:[], narrativeHistory:[], fragments:[], _opts:[],
+    style:{...DEF_STYLE}
+  };
+  S.games[game.id]=game; S.currentId=game.id; save();
+  closeWz(); switchTab('game'); renderGamePage();
+}
+
+// ─────────────────────────────────────────────
+//  TOAST
+// ─────────────────────────────────────────────
+function toast(msg){
+  const e=document.querySelector('.toast'); if(e)e.remove();
+  const d=document.createElement('div'); d.className='toast'; d.textContent=msg;
+  document.body.appendChild(d); setTimeout(()=>d.remove(),2600);
+}
+
+// ─────────────────────────────────────────────
+//  INPUT EVENTS
+// ─────────────────────────────────────────────
+document.getElementById('free-input').addEventListener('input',function(){
+  this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,100)+'px';
+});
+document.getElementById('free-input').addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendFreeInput(); }
+});
+
+// ─────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────
+load();
+renderHistory();
+renderSettings();
+</script>
+</body>
+</html>
