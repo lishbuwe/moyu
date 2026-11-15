@@ -1,7 +1,7 @@
 // 墨游 · 设置：连接、默认规则、阅读、备份
 
 import { db, exportAll, importData, storageInfo } from '../db.js';
-import { el, uid, toast, sheet, saveFile, pickFile, APP_VERSION } from '../util.js';
+import { el, uid, toast, sheet, saveFile, pickFile, APP_VERSION, promptText } from '../util.js';
 import { getConnections, getDefaultConnId, setDefaultConnId, getDefaultRules, getPrefs, setPrefs, connLabel, go, getModules, saveModules, MODULE_MODES, modulesFromMarkdown, modulesToMarkdown } from '../state.js';
 import { FORMAT_LABEL, normalizeUrl, guessFormat, testConnection, listModels } from '../api.js';
 import { parseServiceAccount } from '../vertex.js';
@@ -11,6 +11,8 @@ import { getMonthSpend, getBudget, setBudget, fmtTokens, CUR, priceLabel } from 
 import { getTemplates, saveTemplates, getBase, saveBase, DEFAULT_BASE, builtinTemplates, newTemplate, SCOPES } from '../fanwai.js';
 import { getPacks, deleteGlobalPack, KIND_LABEL } from '../tavern.js';
 import { importFlow } from './packs-ui.js';
+import { rulePanel, collapseSettings } from './rules-ui.js';
+import { importMarkdownPack, groupModules, deleteModules, undoModuleDelete } from '../rules.js';
 
 function sw(checked, onchange) {
   const input = el('input', { type: 'checkbox', onchange: () => onchange(input.checked) });
@@ -138,18 +140,20 @@ export async function render(root, { section }) {
     wrap.append(modTitle);
     const modCard = el('div', { class: 'card' });
     if (!mods.length && !packs.length) modCard.append(el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } }, '模块是可以在多个故事之间复用的规则块，比如“文风”“弹幕写法”“成人场景”。可以一条条加，也可以导入一份 markdown：每个“## 标题”拆成一个模块。'));
-    for (const m of mods) {
-      modCard.append(el('div', { class: 'switch-row', style: { cursor: 'pointer' }, onclick: () => editModule(m) },
-        el('div', { class: 'lbl' }, m.name, el('small', { text: `${MODULE_MODES[m.mode] || MODULE_MODES.always}${m.mode === 'keyword' && m.keywords ? '：' + m.keywords : ''} · ${m.text.length} 字${m.note?.trim() ? ' · 有备注' : ''}` })),
-        el('span', { class: 'muted', text: '›' })));
-    }
-    // 从酒馆导入的整包：一行一个，点开看条目，可以整包删除
-    for (const p of packs) {
-      const pm = allMods.filter((m) => m.pack === p.id);
-      modCard.append(el('div', { class: 'switch-row', style: { cursor: 'pointer' }, onclick: () => showPack(p, pm) },
-        el('div', { class: 'lbl' }, '📦 ' + p.name, el('small', { text: `${KIND_LABEL[p.kind] || '导入'} · ${pm.length} 条 · ${pm.reduce((a, m) => a + m.text.length, 0)} 字 · 酒馆导入` })),
-        el('span', { class: 'muted', text: '›' })));
-    }
+    modCard.append(rulePanel({ mods: allMods, packs, onEdit: editModule,
+      onGroup: async (ids) => {
+        const name = await promptText({ title: '归为同一份预设', placeholder: '填写预设名称', multiline: false });
+        if (!name?.trim()) return;
+        await groupModules(ids, name); await draw(); toast('已归组');
+      },
+      onDelete: async (ids) => {
+        const stories = await db.all('stories');
+        const affected = stories.filter(st => ids.some(id => st.modules?.[id]));
+        if (!confirm(`删除所选 ${ids.length} 条规则？有 ${affected.length} 个故事启用了其中的模块。删除后可撤销。`)) return;
+        await deleteModules(ids); await draw(); toast('已删除，可点“撤销上次删除”恢复');
+      },
+      onUndo: async () => { const n = await undoModuleDelete(); await draw(); toast(n ? `已恢复 ${n} 条规则` : '没有可以撤销的删除'); },
+    }));
     modCard.append(el('div', { class: 'row', style: { marginTop: '10px' } },
       el('button', { class: 'btn small primary', onclick: () => editModule(null) }, '＋ 新模块'),
       el('button', { class: 'btn small', onclick: async () => { if (await importFlow(null)) draw(); } }, '导入酒馆文件'),
@@ -161,9 +165,7 @@ export async function render(root, { section }) {
           const found = modulesFromMarkdown(f.text, f.name.replace(/\.(md|txt)$/i, ''));
           if (!found.length) { toast('文件里没有内容'); return; }
           if (!confirm(`拆出 ${found.length} 个模块：\n${found.map((x) => '· ' + x.name).slice(0, 20).join('\n')}${found.length > 20 ? '\n……' : ''}\n\n都按“一直发送”导入，之后可以逐个改。继续？`)) return;
-          const list = await getModules();
-          for (const x of found) list.push({ id: uid(), name: x.name, text: x.text, note: '', mode: 'always', keywords: '' });
-          await saveModules(list);
+          await importMarkdownPack(f.text, f.name);
           toast(`已导入 ${found.length} 个模块`);
           draw();
         },
@@ -208,6 +210,8 @@ export async function render(root, { section }) {
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '正文字体'),
         seg([['serif', '宋体'], ['sans', '黑体']], p.font, (v) => setPrefs({ font: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '段首缩进'), sw(p.indent, (v) => setPrefs({ indent: v }))),
+      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '关键词加粗与强调色'), sw(p.emphasis !== false, (v) => setPrefs({ emphasis: v }))),
+      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '台词柔和配色'), sw(p.dialogueColor !== false, (v) => setPrefs({ dialogueColor: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '弹幕默认展开'), sw(p.danmuOpen, (v) => setPrefs({ danmuOpen: v })))
     ));
 
@@ -267,8 +271,11 @@ export async function render(root, { section }) {
       `墨游 ${APP_VERSION}`, el('br'),
       '所有故事和密钥只存在这台设备的这个浏览器里，不经过任何服务器（除了你填的 API 地址）。',
       el('br'),
-      'iPhone 上，Safari 里打开和主屏图标打开是两份不同的数据。加到主屏后，请一直从图标进入。'
+      'iPhone 上，Safari 里打开和主屏图标打开是两份不同的数据。加到主屏后，请一直从图标进入。',
+      el('div', { class: 'row', style: { marginTop: '10px' } },
+        el('button', { class: 'btn small', onclick: () => window.dispatchEvent(new Event('moyu:refresh')) }, '检查更新并刷新'))
     ));
+    collapseSettings(wrap, section);
   }
 
   // ───── 连接编辑 ─────
@@ -569,11 +576,15 @@ export async function render(root, { section }) {
     const scope = el('select');
     for (const [k, v] of Object.entries(SCOPES)) if (k !== 'follow') scope.append(el('option', { value: k }, v));
     scope.value = t.scope || 'all';
+    const layout = el('select', {'aria-label':'材料排版'});
+    for (const [value,label] of [['','普通正文'],['forum','论坛'],['chat','聊天'],['show','节目'],['fic','同人发布'],['report','报告']]) layout.append(el('option',{value},label));
+    layout.value = t.layout || ({'论坛体':'forum','群聊记录':'chat'}[t.name]) || '';
     const text = el('textarea', { class: 'tall', placeholder: '这种形式怎么写：格式、视角、要有哪些元素、要避免什么' }); text.value = t.text; text.style.minHeight = '36vh';
     const note = el('textarea', { placeholder: '备注，只给自己看，不发给模型' }); note.value = t.note || '';
     s.body.append(
       el('div', { class: 'field' }, el('label', { text: '名字' }), name),
       el('div', { class: 'field' }, el('label', { text: '默认知情范围' }), scope, el('div', { class: 'hint', text: '写番外时可以临时改。' })),
+      el('div', { class: 'field' }, el('label', { text: '材料排版' }), layout),
       el('div', { class: 'field' }, el('label', { text: '写法要求（发给模型）' }), text),
       el('div', { class: 'field' }, el('label', { text: '备注（不发给模型）' }), note));
     s.foot.append(...[
@@ -588,7 +599,7 @@ export async function render(root, { section }) {
       el('button', {
         class: 'btn primary',
         onclick: async () => {
-          t.name = name.value.trim(); t.scope = scope.value; t.text = text.value; t.note = note.value;
+          t.name = name.value.trim(); t.scope = scope.value; t.text = text.value; t.note = note.value; t.layout = layout.value;
           if (!t.name) { toast('起个名字'); return; }
           const list = await getTemplates();
           const i = list.findIndex((x) => x.id === t.id);

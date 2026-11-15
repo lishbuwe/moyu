@@ -1,7 +1,8 @@
 // 墨游 · 离线缓存
 // 只缓存本站的页面文件；API 请求一律不经过缓存。
-// 策略：先联网取最新（4 秒超时），取不到再用缓存——部署新版后刷新一次就能用上。
-const CACHE = 'moyu-v0.6.14';
+// 先向服务器核验最新文件，取不到再用离线缓存；安装时绕过 HTTP 旧缓存。
+const CACHE_PREFIX = 'moyu-v';
+const CACHE = CACHE_PREFIX + '0.6.16.2';
 const ASSETS = [
   './',
   './index.html',
@@ -11,18 +12,28 @@ const ASSETS = [
   './js/util.js',
   './js/state.js',
   './js/db.js',
+  './js/personal.js',
+  './js/inline.js',
+  './js/rules.js',
+  './js/attachments.js',
+  './js/protagonist.js',
   './js/api.js',
   './js/relay.js',
   './js/prompt.js',
   './js/parse.js',
   './js/cost.js',
   './js/fanwai.js',
+  './js/extra-playbooks.js',
+  './js/extra-layout.js',
+  './js/extra-options.js',
   './js/memory.js',
   './js/exporter.js',
   './js/tavern.js',
   './js/vertex.js',
   './js/discuss.js',
   './js/views/discuss.js',
+  './js/views/attachment-ui.js',
+  './js/views/rules-ui.js',
   './js/views/library.js',
   './js/views/story-edit.js',
   './js/views/story.js',
@@ -39,13 +50,15 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(ASSETS.map((path) => new Request(new URL(path, self.location.href), { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -60,7 +73,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // 不碰 API 和其他网站
   e.respondWith(
-    Promise.race([fetch(req), timeout(4000)])
+    Promise.race([fetch(req, { cache: 'no-cache' }), timeout(4000)])
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();
@@ -69,7 +82,7 @@ self.addEventListener('fetch', (e) => {
         return res;
       })
       .catch(() =>
-        caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./index.html'))
+        caches.open(CACHE).then(async (c) => (await c.match(req, { ignoreSearch: true })) || c.match('./index.html'))
       )
   );
 });

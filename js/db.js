@@ -2,8 +2,8 @@
 // 和旧版不同：保存失败会直接提示，不会悄悄丢进度。
 
 import { toast } from './util.js';
+import { DB_NAME } from './personal.js';
 
-const DB_NAME = 'moyu';
 const DB_VER = 2;
 export const SCHEMA = 1; // 存档格式版本，以后升级格式时据此迁移
 
@@ -145,6 +145,10 @@ function backupNodes(nodes) {
   return nodes.map(({ relayJob, relayContext, ...node }) => node);
 }
 
+function backupExtras(extras) {
+  return extras.map((x) => ({ ...x, versions: backupNodes(x.versions || []) }));
+}
+
 export async function exportAll({ includeKeys = false } = {}) {
   const [stories, nodes, extras, connections, defaultRules, prefs, modules, fwTemplates, fwBase, globalMemo, packs] = await Promise.all([
     db.all('stories'), db.all('nodes'), db.all('extras'), db.all('connections'),
@@ -156,7 +160,7 @@ export async function exportAll({ includeKeys = false } = {}) {
   try { discussions = await (await import('./discuss.js')).exportDiscussions(); } catch {}
   return {
     app: 'moyu', schema: SCHEMA, exportedAt: Date.now(),
-    stories, nodes: backupNodes(nodes), extras, modules, packs, fwTemplates, fwBase, globalMemo, discussions,
+    stories, nodes: backupNodes(nodes), extras: backupExtras(extras), modules, packs, fwTemplates, fwBase, globalMemo, discussions,
     connections: connections.map((c) => (includeKeys ? c : { ...c, apiKey: '' })),
     defaultRules, prefs,
   };
@@ -166,7 +170,7 @@ export async function exportStory(storyId) {
   const story = await db.get('stories', storyId);
   const nodes = await db.byStory(storyId);
   const extras = await db.extrasOf(storyId);
-  return { app: 'moyu', schema: SCHEMA, exportedAt: Date.now(), stories: [story], nodes: backupNodes(nodes), extras, connections: [] };
+  return { app: 'moyu', schema: SCHEMA, exportedAt: Date.now(), stories: [story], nodes: backupNodes(nodes), extras: backupExtras(extras), connections: [] };
 }
 
 /** 导入：同 id 的故事会被覆盖；连接只补充不存在的（不覆盖本机已有密钥） */

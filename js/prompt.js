@@ -2,32 +2,18 @@
 // 顺序：不常变的放前面（规则 → 设定 → 格式），剧情原文在后——以后加缓存时省钱。
 
 import { forContext } from './parse.js';
+import { INPUT_CONVENTION, PERSONAL_RULES } from './personal.js';
+import { protagonistState, PROTAGONIST_FIELDS } from './protagonist.js';
+import { EMPHASIS_GUIDE } from './inline.js';
 
-export const DEFAULT_RULES = `【玩法】
-- 你是这场文字互动小说的主持人（GM）兼叙述者，负责世界和其中所有角色；玩家扮演主角，用第二人称“你”称呼主角。
-- 玩家输入里，“”内是主角说出口的话；引号外是动作或内心想法。内心想法其他角色听不到，也无从得知。
-- 不替主角说话、做决定或主动行动；主角身体的自然反应可以写。
-- 只有玩家宣布才算结局。
-
-【节奏】
-- 每轮只推进一个场景里的一两个关键动作，不跳时间、不切场景，不用“几天后”“两人聊了很久”这类概括带过。
-- 停在局面发生变化、需要主角接招的地方，不替主角把反应写完。
-- 世界不需要主角推动也会运转：角色有自己的目标和生活，会主动出手。
-
-【人物】
-- 每个角色有自己的动机、立场和说话方式，按人设行事，不为剧情需要突然变脸。
-- 感情变化要有来由，建立在和主角共同经历的具体事件上，不凭空生出深情或敌意。
-- 角色只知道通过合理渠道得知的事，不开上帝视角。
-
-【文风】
-- 小说式文笔，传统中文自然段，对白、动作、心理融合在段落里；不一句一段，也不堆成大块。
-- 感情交给细节和动作，不替人物总结；少用套话和固定句式。`;
+export const DEFAULT_RULES = PERSONAL_RULES;
 
 export function formatContract({ danmu = true, options = true } = {}) {
   const parts = [
     '每次回复严格按下面的格式，不要输出格式以外的说明：',
     '# 本章标题（第一行，四到十二个字，不写“第几章”）',
     '（空一行后写正文）',
+    EMPHASIS_GUIDE,
   ];
   if (danmu) {
     parts.push(
@@ -42,7 +28,8 @@ export function formatContract({ danmu = true, options = true } = {}) {
       'A. ……',
       'B. ……',
       'C. ……',
-      '（3个方向明显不同的参考行动：写具体能做的事，不写结果，不泄露隐藏信息。玩家也可以完全不按选项来。）'
+      'D. ……',
+      '（4个方向明显不同的参考行动，标为 A/B/C/D：写具体能做的事，不写结果，不泄露隐藏信息。玩家也可以完全不按选项来。）'
     );
   }
   parts.push('', '玩家以“（出戏）”开头的话是场外交流：用场外身份简短直接地回答，不推进剧情，不用上面的格式。');
@@ -89,12 +76,13 @@ const lines = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boo
 const asList = (t) => lines(t).map((l) => (/^[-*•·]/.test(l) ? l.replace(/^[-*•·]\s*/, '- ') : '- ' + l)).join('\n');
 
 /** 主角（玩家扮演的“你”）：名字、性别、外貌身份等。番外换成第三人称时最容易写错性别，所以每处都带上 */
-export function protagonistText(story) {
+export function protagonistText(story, path = []) {
   const p = story?.protagonist || {};
   const lines = [
     p.name?.trim() ? `名字：${p.name.trim()}` : '',
     p.gender?.trim() ? `性别：${p.gender.trim()}${/女/.test(p.gender) ? '（用“她”）' : /男/.test(p.gender) ? '（用“他”）' : ''}` : '',
     p.note?.trim() ? p.note.trim() : '',
+    ...Object.entries(protagonistState(p, path)).map(([key, entry]) => `当前·${PROTAGONIST_FIELDS[key]}：${entry.value}`),
   ].filter(Boolean);
   if (!lines.length) return '';
   return '【主角（玩家扮演的“你”）】\n' + lines.join('\n') + '\n写到主角时，性别、称呼都按这里来，第三人称视角也一样。';
@@ -148,7 +136,7 @@ export function selectExtras(story, path, modules = [], extra = '') {
 /** 末尾提醒：在场角色的禁止清单，放在最后一条玩家消息里（离模型“下笔”最近） */
 /** 每轮最后一句的格式提醒：规则很长时模型容易忘了写弹幕和选项 */
 export function formatTail(story) {
-  const want = [story.danmu !== false ? '【弹幕】' : '', story.options !== false ? '【选项】（A/B/C 三行）' : ''].filter(Boolean);
+  const want = [story.danmu !== false ? '【弹幕】' : '', story.options !== false ? '【选项】（A/B/C/D 四行）' : ''].filter(Boolean);
   if (!want.length) return '';
   return `\n\n（格式提醒：正文写完后依次写${want.join('和')}，不要省略。）`;
 }
@@ -209,10 +197,11 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   add('全局备忘', globalMemo?.trim() ? '【全局备忘（所有故事通用）】\n' + globalMemo.trim() : '', 'rules');
   for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
   add('世界与角色设定', story.world?.trim() ? '【世界与角色设定】\n' + story.world.trim() : '', 'world');
-  add('主角', protagonistText(story), 'card');
+  add('主角', protagonistText(story, path), 'card');
   const coreFirst = [...sentCards].sort((a, b) => (b.core ? 1 : 0) - (a.core ? 1 : 0));
   for (const c of coreFirst) add(`角色卡 · ${c.name}${c.core ? '（常驻）' : '（被提到）'}`, cardText(applyCardState(c, cp?.mem)), 'card');
   if (cp) add(`前情档案 · 整理到第 ${cp.mem.upTo} 章`, memoryText(cp.mem), 'memory');
+  add('玩家输入约定', INPUT_CONVENTION, 'rules');
   add('输出格式', '【输出格式】\n' + formatContract({ danmu: story.danmu !== false, options: story.options !== false }), 'format');
   const system = parts.map((p) => p.text).join('\n\n');
 

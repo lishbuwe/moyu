@@ -9,6 +9,8 @@ import { buildContext, CONTINUE_MSG, rewriteMsg, directorBlock, splitNames, late
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { archiveConn, DEFAULT_EVERY } from './memory.js';
 import { parseReply, paragraphs } from '../parse.js';
+import { CHOICE_LABELS, expandOptionInput, choiceInput, toggleChoice } from '../personal.js';
+import { inlineText } from '../inline.js';
 import { openExportDialog } from '../exporter.js';
 import { normalizeUsage, computeCost, fmtMoney, fmtTokens, recordUsage, getMonthSpend, getBudget, hasPrice, priceMode, CUR, getUsageLog } from '../cost.js';
 
@@ -34,6 +36,7 @@ export async function render(root, { id }) {
     globalMemo: await getGlobalMemo(),
     archiving: null,   // 后台整理前情 { ctrl, text }
     archiveError: null,
+    choiceSource: null,
   };
   story.manualOn = story.manualOn || {};
   const manualMods = () => [...st.modules, ...(story.localModules || [])].filter((m) => m.mode === 'manual' && story.modules?.[m.id]);
@@ -73,16 +76,35 @@ export async function render(root, { id }) {
   const scroller = el('div', { class: 'scroll' }, feed);
   const ta = el('textarea', { rows: '1', enterkeyhint: 'enter' });
   const sendBtn = el('button', { class: 'send', onclick: () => onSend() });
-  const chipQuote = el('button', { class: 'chip', onclick: () => insertAtCursor(ta, '“', '”') }, '“ ”');
+  const chipQuote = el('button', { class: 'bracket-btn', 'aria-label': '插入动作或心理括号', onmousedown: (e) => e.preventDefault(), onclick: () => insertAtCursor(ta, '（', '）') }, '（ ）');
+  const chipDanmu = el('button', { class: 'chip', role: 'switch', 'aria-label': '弹幕', onclick: async () => {
+    const before = story.danmu;
+    chipDanmu.disabled = true;
+    story.danmu = story.danmu === false;
+    try {
+      await db.put('stories', story);
+      renderFeed({ keepScroll: true });
+      toast(story.danmu ? '已打开弹幕' : '已关闭弹幕，之后生成也不写弹幕');
+    } catch { story.danmu = before; }
+    finally { chipDanmu.disabled = false; updateComposer(); }
+  } });
   const chipCont = el('button', { class: 'chip', onclick: () => send('continue', '') }, '继续');
   // 出戏、导演放在右上角菜单里（避免误触）；开着的时候在输入框上方显示一条状态，点 ✕ 关掉
   const statusRow = el('div', { class: 'status-row' });
   const composer = el('div', { class: 'composer' },
     statusRow,
-    el('div', { class: 'bar' }, chipQuote, el('span', { class: 'spacer' }), chipCont),
-    el('div', { class: 'inrow' }, ta, sendBtn)
+    el('div', { class: 'bar' }, chipDanmu, el('span', { class: 'spacer' }), chipCont),
+    el('div', { class: 'inrow' }, el('div', { class: 'input-shell' }, ta, chipQuote), sendBtn)
   );
   const fit = autoGrow(ta);
+  const syncChoices = () => {
+    const selected = st.ooc ? [] : choiceInput(ta.value).labels;
+    feed.querySelectorAll('.options button[data-choice]').forEach((button) => {
+      const on = selected.includes(button.dataset.choice);
+      button.classList.toggle('selected', on); button.setAttribute('aria-pressed', String(on));
+    });
+  };
+  ta.addEventListener('input', syncChoices);
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSend(); } });
 
   root.append(el('div', { class: 'view' },
@@ -102,6 +124,8 @@ export async function render(root, { id }) {
   }
 
   function updateComposer() {
+    chipDanmu.textContent = story.danmu !== false ? '弹幕：开' : '弹幕：关';
+    chipDanmu.setAttribute('aria-checked', String(story.danmu !== false));
     const started = headPath().length > 0;
     const busy = !!st.streaming;
     sendBtn.textContent = busy ? '停止' : (started ? '发送' : '开始');
@@ -129,9 +153,7 @@ export async function render(root, { id }) {
         el('button', { 'aria-label': '关掉情境', onclick: () => { story.manualOn[m.id] = false; saveStory(); updateComposer(); } }, '✕'))),
     ].filter(Boolean));
     ta.classList.toggle('ooc', st.ooc);
-    ta.placeholder = !started
-      ? '开场要求（可以不填）'
-      : st.ooc ? '出戏：和 GM 场外说话，不推进剧情' : '台词放在“”里，动作和心里想的直接写';
+    ta.placeholder = '自由输入…';
     chipCont.style.display = started ? '' : 'none';
     chipCont.disabled = busy;
     chipCont.style.opacity = busy ? .45 : 1;
@@ -196,7 +218,7 @@ export async function render(root, { id }) {
     const wrap = el('div', { class: 'turn', 'data-id': n.id });
     if (n.kind === 'ooc') {
       const box = el('div', { class: 'gm ooc' });
-      for (const p of paragraphs(n.text)) box.append(el('p', { text: p }));
+      for (const p of paragraphs(n.text)) box.append(el('p', {}, inlineText(p, getPrefs().emphasis !== false, getPrefs().dialogueColor !== false)));
       if (live && !n.text) box.append(el('div', { class: 'thinking', text: n.thinking ? '思考中' : '回复中' }));
       if (!live && n.text?.trim()) box.append(el('div', { class: 'row end' }, versionCtl(n), moreBtn(() => replyMenu(n, { isLast }))));
       wrap.append(box);
@@ -218,30 +240,31 @@ export async function render(root, { id }) {
       if (p.title) g.append(el('h2', { text: p.title }));
       const paras = paragraphs(p.body);
       paras.forEach((t, i) => g.append(el('p', {
-        text: t,
         class: [live && i === paras.length - 1 ? 'cursor' : '', picking ? 'pick' : ''].filter(Boolean).join(' ') || null,
         onclick: picking ? () => rewriteFrom(n, i) : null,
-      })));
+      }, inlineText(t, getPrefs().emphasis !== false, getPrefs().dialogueColor !== false))));
       if (live && !n.text) g.append(el('div', { class: 'thinking', text: n.thinking ? '模型思考中' : '正在构思' }));
-      if (p.danmu.length && !picking) {
+      if (story.danmu !== false && p.danmu.length && !picking) {
         const d = el('details', { class: 'danmu' }, el('summary', { text: `弹幕 · ${p.danmu.length}` }));
         if (prefs.danmuOpen) d.open = true;
         for (const m of p.danmu) d.append(el('div', { class: 'dm' }, m.name ? el('b', { text: m.name }) : null, m.text));
         g.append(d);
       }
-      if (isLast && !live && !picking && p.options.length) {
+      if (isLast && !live && !picking && story.options !== false && p.options.length) {
         const box = el('div', { class: 'options' });
-        p.options.forEach((o, i) => box.append(el('button', {
-          onclick: () => { st.ooc = false; ta.value = o; fit(); updateComposer(); ta.focus(); },
-        }, el('span', { class: 'k', text: 'ABCDEF'[i] }), o)));
+        p.options.slice(0, CHOICE_LABELS.length).forEach((o, i) => box.append(el('button', {
+          'data-choice': CHOICE_LABELS[i], 'aria-pressed': String(choiceInput(ta.value).labels.includes(CHOICE_LABELS[i])),
+          class: choiceInput(ta.value).labels.includes(CHOICE_LABELS[i]) ? 'selected' : '',
+          onclick: () => { st.ooc = false; st.choiceSource = n.id; ta.value = toggleChoice(ta.value, CHOICE_LABELS[i]); fit(); updateComposer(); syncChoices(); },
+        }, el('span', { class: 'k', text: CHOICE_LABELS[i] }), o)));
         g.append(box);
       }
-      // 模型没写选项（或格式认不出）：一键补三个，只发这一章，花费很小
+      // 模型没写选项（或格式认不出）：一键补四个，只发这一章，花费很小
       if (isLast && !live && !picking && !p.options.length && story.options !== false && n.kind !== 'ooc' && n.text?.trim() && n.status !== 'partial') {
         g.append(el('div', { class: 'no-opts' },
           st.addingOpts === n.id
             ? el('span', { class: 'thinking', text: '正在补选项' })
-            : el('button', { class: 'btn small ghost', onclick: () => addOptions(n) }, '这一章没写选项 · 补三个')));
+            : el('button', { class: 'btn small ghost', onclick: () => addOptions(n) }, '这一章没写选项 · 补四个')));
       }
       wrap.append(g);
     }
@@ -264,16 +287,16 @@ export async function render(root, { id }) {
     const p = parseReply(n.text);
     const system = '你在主持一场文字互动小说，玩家扮演“你”。' + (story.world?.trim() ? '\n【世界与角色设定（节选）】\n' + story.world.trim().slice(0, 2000) : '');
     const user = '下面是刚写完的一章：\n\n' + (p.title ? '# ' + p.title + '\n' : '') + p.body +
-      '\n\n请只为这一章的结尾写 3 个参考选项，格式：\n【选项】\nA. ……\nB. ……\nC. ……\n' +
-      '要求：三个方向明显不同的具体行动（可以带一个马上会发生的事件），写行动不写结果，不泄露隐藏信息。只输出这四行。';
+      '\n\n请只为这一章的结尾写 4 个参考选项，格式：\n【选项】\nA. ……\nB. ……\nC. ……\nD. ……\n' +
+      '要求：四个方向明显不同的具体行动（可以带一个马上会发生的事件），写行动不写结果，不泄露隐藏信息。只输出这五行。';
     try {
       const r = await streamWithRetry(conn, { system, messages: [{ role: 'user', content: user }], maxTokens: 3000 });
       const u = normalizeUsage(r.usage, { inChars: system.length + user.length, outChars: r.text.length });
       recordUsage({ kind: '补选项', storyId: story.id, model: conn.model, usage: u, cost: computeCost(u, conn) });
       let opts = parseReply(r.text).options;
-      if (!opts.length) opts = r.text.split('\n').map((l) => l.trim()).filter((l) => l && !/选\s*项/.test(l)).slice(0, 3);
+      if (!opts.length) opts = r.text.split('\n').map((l) => l.trim()).filter((l) => l && !/选\s*项/.test(l)).slice(0, CHOICE_LABELS.length);
       if (!opts.length) { toast('没补上，可以再试一次'); return; }
-      n.text = n.text.trimEnd() + '\n\n【选项】\n' + opts.slice(0, 3).map((o, i) => `${'ABC'[i]}. ${o}`).join('\n');
+      n.text = n.text.trimEnd() + '\n\n【选项】\n' + opts.slice(0, CHOICE_LABELS.length).map((o, i) => `${CHOICE_LABELS[i]}. ${o}`).join('\n');
       await db.put('nodes', n).catch(() => {});
     } catch (e) {
       if (e?.kind !== 'aborted') toast('补选项失败：' + (e?.message || e), 3500);
@@ -321,6 +344,9 @@ export async function render(root, { id }) {
   }
 
   function renderFeed({ keepScroll = false, focusId = null } = {}) {
+    if (st.choiceSource && st.choiceSource !== story.headId) {
+      ta.value = choiceInput(ta.value).extra; st.choiceSource = null; fit();
+    }
     const stick = !focusId && (!keepScroll || nearBottom());
     const path = headPath();
     feed.replaceChildren();
@@ -376,7 +402,9 @@ export async function render(root, { id }) {
     if (st.streaming) { stop(); return; }
     const started = headPath().length > 0;
     if (!started) { await send('start', ta.value); return; }
-    const text = ta.value;
+    const head = nodes.get(story.headId);
+    const options = story.options !== false && head?.role === 'assistant' && !isOoc(head) ? parseReply(head.text || '').options : [];
+    const text = st.ooc ? ta.value : expandOptionInput(ta.value, options);
     if (!text.trim()) { toast(st.ooc ? '写点要说的话' : '写点什么，或者点“继续”'); return; }
     await send(st.ooc ? 'ooc' : 'play', text);
   }
@@ -901,6 +929,7 @@ export async function render(root, { id }) {
       { key: 'ctx', label: '查看发给模型的内容', hint: '排查“为什么他又不像他了”' },
       { key: 'transcript', label: '导出游玩记录', hint: 'JSON 或纯文本；可选带弹幕、选项、番外' },
       { key: 'export', label: '备份这个故事', hint: '完整存档（含所有分支），可以导回墨游；不含密钥' },
+      { key: 'refresh', label: '检查更新并刷新' },
     ]);
     if (!k) return;
     if (k.startsWith('mod:')) {
@@ -917,6 +946,7 @@ export async function render(root, { id }) {
     else if (k === 'cost') showCost();
     else if (k === 'ctx') showContext();
     else if (k === 'transcript') openExportDialog(story.id, story.title);
+    else if (k === 'refresh') window.dispatchEvent(new Event('moyu:refresh'));
     else if (k === 'export') {
       const data = await exportStory(story.id);
       const d = new Date();
@@ -1063,7 +1093,7 @@ export async function render(root, { id }) {
   const onCards = (e) => { if (e.detail?.storyId === story.id && Array.isArray(e.detail.cards)) story.cards = e.detail.cards; };
   window.addEventListener('moyu:cards', onCards);
   // 别的页面改了这个故事或某一章（角色卡、记忆、设定……）：换成最新的，免得后台写完时把别人的改动盖掉
-  const unwatch = watchStory(story);
+  const unwatch = watchStory(story, () => { if (!destroyed) renderFeed({ keepScroll: true }); });
   let nodesDirty = false;
   const onPut = (e) => {
     const { store, obj } = e.detail || {};
