@@ -483,3 +483,36 @@ a { color: var(--accent); }
 .ex-report-document .ex-callout { margin: 10px 0; padding: 8px 10px; background: transparent; border-left: 2px solid var(--line); border-radius: 0; }
 .ex-report-document .ex-prescription { border-color: var(--accent); background: var(--accent-soft); }
 .ex-report-document .ex-scene { margin: 15px 0; font-size: 15px; }
+
+/* 手机记录：文字头像、紧凑消息与连续发送。 */
+.ex-chat .ex-speaker { display: flex; align-items: center; gap: 5px; margin: 0 0 4px; }
+.ex-chat .ex-chat-avatar { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--card); border: 1px solid var(--line); color: var(--accent); font-size: 11px; line-height: 1; flex-shrink: 0; }
+.ex-chat .ex-speaker .ex-time { margin: 0; }
+.ex-chat .ex-message { margin-top: 6px; }
+.ex-chat .ex-message.consecutive { margin-top: 4px; }
+.ex-chat .ex-bubble { padding: 5px 8px; max-width: 79%; font-size: 13px; line-height: 1.65; }
+.extra-layout .ex-chat { padding: 0 10px 9px; margin: 13px 0; }
+.extra-layout .ex-note { border-left: 3px solid var(--accent); padding: 12px 14px; margin: 14px 0; }
+.ex-note-row { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 8px 0; }
+.ex-note-row .ex-body { font-size: 13px; }
+.ex-chat-note { color: var(--text2); font-size: 11px; line-height: 1.6; margin: 3px 0; }
+.ex-chat .ex-chat-head { margin-left: -10px; margin-right: -10px; padding: 7px 10px; }
+
+/* 节目遗漏外层标记的对白也使用节目样式，不显示协议分隔符。 */
+.ex-show-dialogue { margin: 10px 0; padding: 9px 12px; background: var(--accent-soft); border-left: 2px solid var(--accent); border-radius: 7px; font: 14px/1.8 var(--ui-font); }
+.ex-show-dialogue .ex-badge { margin-bottom: 5px; }
+.ex-show-fragment { font: 14px/1.8 var(--ui-font); margin: 10px 0; }
+.ex-show-fragment .ex-body { text-indent: 0; }
+/* 评论属于作品发布页，紧跟正文，不再套独立论坛卡片。 */
+.ex-fic > .ex-fic-comments { margin: 16px 0 0; padding: 14px 0 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+.ex-comments-title { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 8px; }
+.ex-fic-comments .ex-thread { border: 0; margin: 0; }
+.ex-fic-comments .ex-post { padding: 10px 0; background: transparent; }
+.ex-fic-comments .ex-post .ex-body { font-size: 13px; line-height: 1.7; }
+.ex-fic-comments .ex-avatar { width: 23px; height: 23px; font-size: 10px; }
+/* 报告中的附件聊天独立于正文阅读字号，防止手机自动放大。 */
+.ex-chat { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.ex-report-document .ex-chat .ex-bubble { font-size: 12px; line-height: 1.65; padding: 5px 7px; }
+.ex-report-document .ex-chat .ex-chat-head { font-size: 12px; }
+.ex-report-document .ex-chat .ex-chat-avatar { width: 22px; height: 22px; font-size: 10px; }
+.ex-report-document .ex-chat .ex-time, .ex-report-document .ex-chat .ex-system, .ex-report-document .ex-chat .ex-chat-note { font-size: 10px; }
