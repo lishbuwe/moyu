@@ -108,8 +108,24 @@ test('限制请求、返回大小、任务数及完成后的保留时间', async
   calls[0].stream.write('123456'); await delay(10);
   assert.equal((await (await req('/jobs/' + id)).json()).state, 'error');
   assert.equal(calls[0].signal.aborted, true);
+  const next = await create(); // 完成的任务继续可接回，但不占同时生成的名额。
   time = 99; assert.equal((await req('/jobs/' + id)).status, 200);
   time = 100; assert.equal((await req('/jobs/' + id)).status, 404);
+  assert.equal((await req('/jobs/' + next)).status, 200);
+});
+
+test('已完成任务过多时只逐出最早的结果，活跃任务仍受并发上限保护', async (t) => {
+  const { create, req, calls } = await fixture(t, { maxJobs: 1, maxCompletedJobs: 1, ttl: 100000 });
+  const first = await create();
+  calls[0].stream.end('第一条'); await delay(10);
+  const second = await create();
+  assert.equal((await req('/jobs/' + first)).status, 200);
+  assert.equal((await req('/jobs', { method: 'POST', body: JSON.stringify(payload) })).status, 503);
+  calls[1].stream.end('第二条'); await delay(10);
+  const third = await create();
+  assert.equal((await req('/jobs/' + first)).status, 404);
+  assert.equal((await req('/jobs/' + second)).status, 200);
+  assert.equal((await req('/jobs/' + third)).status, 200);
 });
 
 test('from 范围校验，拒绝重定向和敏感的代理请求头', async (t) => {

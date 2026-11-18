@@ -7,7 +7,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.0.1';
 const denied = new BlockList();
 for (const [ip, mask] of [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
@@ -68,7 +68,8 @@ function upstreamRequest(target, headers, body, signal) {
 export function createRelayServer({
   token, origins = ['https://lishbuwe.github.io'], lookup = dnsLookup,
   requestUpstream = upstreamRequest, log = (entry) => console.info(JSON.stringify(entry)),
-  now = Date.now, ttl = 30 * 60_000, maxJobs = 20, maxBytes = 5 * 1024 * 1024,
+  now = Date.now, ttl = 30 * 60_000, maxJobs = 20, maxCompletedJobs = 100,
+  maxRetainedBytes = 64 * 1024 * 1024, maxBytes = 5 * 1024 * 1024,
   maxBody = 2 * 1024 * 1024, maxRunMs = 15 * 60_000,
 } = {}) {
   if (typeof token !== 'string' || token.length < 32) throw new Error('RELAY_TOKEN 必须是至少 32 位的随机口令');
@@ -139,7 +140,18 @@ export function createRelayServer({
       for (const { res } of job.listeners) res.destroy();
       jobs.delete(id);
     }
+    let completed = [...jobs.values()].filter((job) => job.state !== 'running');
+    let retainedBytes = completed.reduce((sum, job) => sum + job.bytes, 0);
+    completed.sort((a, b) => a.endedAt - b.endedAt);
+    for (const job of completed) {
+      if (completed.length <= maxCompletedJobs && retainedBytes <= maxRetainedBytes) break;
+      if (job.listeners.size) continue; // 正在接回的任务不能中途删除。
+      jobs.delete(job.id);
+      retainedBytes -= job.bytes;
+      completed = completed.filter((entry) => entry !== job);
+    }
   };
+  const activeCount = () => [...jobs.values()].filter((job) => job.state === 'running').length;
   const gc = setInterval(sweep, 60_000); gc.unref();
   const json = (res, status, data) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data));
@@ -161,7 +173,7 @@ export function createRelayServer({
     try {
       sweep();
       if (req.method === 'POST' && path.pathname === '/jobs') {
-        if (jobs.size >= maxJobs) throw problem(503, '转发任务已满，请稍后再试');
+        if (activeCount() >= maxJobs) throw problem(503, '正在生成的转发任务已满，请稍后再试');
         if (Number(req.headers['content-length']) > maxBody) throw problem(413, '请求超过 2 MB');
         const buffers = []; let size = 0;
         for await (const data of req) {
@@ -174,7 +186,7 @@ export function createRelayServer({
         if (!input || input.method !== 'POST' || typeof input.body !== 'string') throw problem(400, '只接受 POST 和字符串 body');
         const headers = requestHeaders(input.headers);
         const target = await checkedTarget(input.url, lookup);
-        if (jobs.size >= maxJobs) throw problem(503, '转发任务已满，请稍后再试');
+        if (activeCount() >= maxJobs) throw problem(503, '正在生成的转发任务已满，请稍后再试');
         const job = { id: randomUUID(), state: 'running', upstreamStatus: null, contentType: '', chunks: [], bytes: 0,
           createdAt: now(), endedAt: null, error: null, abort: new AbortController(), listeners: new Set(), host: target.url.hostname };
         job.ready = new Promise((resolve) => { job.readyResolve = resolve; });

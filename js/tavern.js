@@ -297,7 +297,7 @@ async function storyFromChara(c, file) {
     world: [cleanMacros(c.scenario, ctx) ? '【情境】\n' + cleanMacros(c.scenario, ctx) : '', `【${c.name}】\n` + cleanMacros(c.description, ctx)].filter(Boolean).join('\n\n'),
     opening: cleanMacros(c.first_mes, ctx),
     cards: [card], modules: {}, manualOn: {}, localModules: [], packs: [],
-    danmu: true, options: true, connectionId: null, headId: null,
+    danmu: true, options: true, connectionId: null, headId: null, memEvery: 1,
     createdAt: Date.now(), updatedAt: Date.now(), schema: 1,
   };
   const extra = [cleanMacros(c.system_prompt, ctx), cleanMacros(c.post, ctx)].filter(Boolean);

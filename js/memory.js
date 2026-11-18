@@ -8,7 +8,7 @@ import { chaptersOf } from './fanwai.js';
 import { normalizeUsage, computeCost, recordUsage } from './cost.js';
 import { ensureStructured, syncStructured, addEvents } from './structured-memory.js';
 
-export const BATCH = 1;           // 一章结束整理一次，同一章节版本在 pendingChapters 中去重
+export const BATCH = 10;          // 多章积压时恢复原有批量整理；逐章模式仍一次整理一章
 const SUMMARY_LIMIT = 8000;       // 各段摘要超过这么多字，就把最早的一半压缩成“早期概要”
 
 export function emptyMemory() {
@@ -243,7 +243,8 @@ async function runInner(story, nodes, path, conn, { signal, onProgress = () => {
     recordUsage({ kind, storyId: story.id, model: conn?.model || '', usage: u, cost: c });
   };
   const queue = [];
-  for (let i = 0; i < pending.length; i += BATCH) queue.push(pending.slice(i, i + BATCH));
+  const batchSize = Number(story.memEvery) === 1 ? 1 : BATCH;
+  for (let i = 0; i < pending.length; i += batchSize) queue.push(pending.slice(i, i + batchSize));
   while (queue.length) {
     const batch = queue.shift();
     const from = batch[0].no;

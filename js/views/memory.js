@@ -8,7 +8,7 @@ import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { fmtMoney } from '../cost.js';
 import { migrateCheckpoints, projectColumns, syncStructured } from '../structured-memory.js';
 
-export const DEFAULT_EVERY = 1;
+export const DEFAULT_EVERY = 15; // 旧故事未明确设置时保留升级前的频率；新故事创建时单独设为 1。
 
 function pathTo(nodes, nodeId) {
   const out = [];
