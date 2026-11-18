@@ -197,7 +197,7 @@ export function inputBudgetChars(conn) {
   return Number.isFinite(n) && n >= 6000 && n <= 120000 ? Math.floor(n) : 30000;
 }
 
-export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '' } = {}) {
+export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '', continuationMessages = [] } = {}) {
   const { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
@@ -260,7 +260,8 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   // 超出预算时从最早的开始丢（至少保留最后 6 条）
   let trimmed = 0;
   const size = (ms) => ms.reduce((a, m) => a + m.content.length, 0);
-  while (!compact && messages.length > 6 && size(messages) + system.length > budgetChars) {
+  const continuationChars = size(continuationMessages);
+  while (!compact && messages.length > 6 && size(messages) + system.length + continuationChars > budgetChars) {
     messages.shift();
     trimmed++;
   }
@@ -268,6 +269,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   if (messages.length && messages[0].role === 'assistant') {
     messages.unshift({ role: 'user', content: cp ? '（更早的剧情见系统提示里的“前情档案”。下面从最近一章接着来。）' : '（更早的剧情因为太长没有发送。下面从这里接着来。）' });
   }
+  messages.push(...continuationMessages);
   if (compact && size(messages) + system.length > budgetChars) {
     const recall = parts.find((p) => p.label === '历史记忆检索');
     if (recall) {

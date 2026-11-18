@@ -77,7 +77,7 @@ export async function render(root, { id }) {
   const titleEl = el('div', { class: 'title' });
   const chip = el('button', { class: 'model-chip', onclick: () => pickConnection() });
   const feed = el('div', { class: 'feed' });
-  const scroller = el('div', { class: 'scroll' }, feed);
+  const scroller = el('div', { class: 'scroll play-scroll' }, feed);
   const ta = el('textarea', { rows: '1', enterkeyhint: 'enter' });
   const sendBtn = el('button', { class: 'send', onclick: () => onSend() });
   const chipQuote = el('button', { class: 'bracket-btn', 'aria-label': '插入动作或心理括号', onmousedown: (e) => e.preventDefault(), onclick: () => insertAtCursor(ta, '（', '）') }, '（ ）');
@@ -274,7 +274,9 @@ export async function render(root, { id }) {
     }
     if (!live) {
       if (n.stopped && n.text?.trim()) wrap.append(el('div', { class: 'note', text: '已停止，这一轮没写完。' }));
-      else if (n.status === 'partial' && !n.error) wrap.append(el('div', { class: 'note', text: '这一轮达到输出上限，没写完。可以点“续写”，或在连接设置里调大“输出上限”。' }));
+      else if (n.status === 'partial' && !n.error) wrap.append(el('div', { class: 'note', text: n.finish === 'interrupted'
+        ? '接口没发结束标记。已保留收到的内容，可以点“续写”。'
+        : '这一轮达到输出上限，没写完。可以点“续写”，或在连接设置里调大“输出上限”。' }));
       if (n.flagged) wrap.append(el('div', { class: 'note', text: '这一轮被接口中途截停了（内容审核）。' }));
       if (n.error && n.error.kind !== 'aborted') wrap.append(errorBox(n.error));
       if (isLast) wrap.append(toolsFor(n));
@@ -331,7 +333,10 @@ export async function render(root, { id }) {
       tools.append(el('button', { class: 'btn small primary', onclick: () => retry(n) }, '重试'));
     } else {
       tools.append(el('button', { class: 'btn small', onclick: () => regenerate(n) }, '重写这轮'));
-      if (n.status === 'partial' || (n.error && hasText)) tools.append(el('button', { class: 'btn small primary', onclick: () => cont(n) }, '续写'));
+      if (hasText && (!isOoc(n) || n.status === 'partial' || n.error)) {
+        const needsContinue = n.status === 'partial' || n.error || n.flagged;
+        tools.append(el('button', { class: 'btn small' + (needsContinue ? ' primary' : ''), onclick: () => cont(n) }, '续写'));
+      }
     }
     const metaText = [n.model, n.cost ? fmtMoney(n.cost) : (n.usageN ? fmtTokens(n.usageN.input + n.usageN.output) + ' token' : '')].filter(Boolean).join(' · ');
     if (metaText) {
@@ -476,6 +481,7 @@ export async function render(root, { id }) {
     const usageKind = saved?.usageKind || (a.kind === 'ooc' ? '出戏' : continueNode ? '续写' : '正文');
     a.status = 'streaming';
     a.error = null; a.stopped = false; a.flagged = false; a.thinking = false;
+    a.finish = null;
     a.model = conn?.model || a.model || '';
     touch(a);
     nodes.set(a.id, a);
@@ -485,13 +491,13 @@ export async function render(root, { id }) {
     await saveStory();
 
     const budgetChars = inputBudgetChars(conn);
-    const ctx = buildContext(story, pathTo(a.parentId), { budgetChars, modules: st.modules, extra: extraDirector || '', globalMemo: st.globalMemo });
+    const continuationMessages = continueNode && base.trim()
+      ? [{ role: 'assistant', content: base }, { role: 'user', content: rewriteNote != null ? rewriteMsg(rewriteNote) : CONTINUE_MSG }]
+      : [];
+    const ctx = buildContext(story, pathTo(a.parentId), { budgetChars, modules: st.modules, extra: extraDirector || '', globalMemo: st.globalMemo, continuationMessages });
     if (extraDirector?.trim()) {
-      const last = ctx.messages[ctx.messages.length - 1];
+      const last = ctx.messages[ctx.messages.length - continuationMessages.length - 1];
       if (last && last.role === 'user') last.content += directorBlock(extraDirector);
-    }
-    if (continueNode && base.trim()) {
-      ctx.messages.push({ role: 'assistant', content: base }, { role: 'user', content: rewriteNote != null ? rewriteMsg(rewriteNote) : CONTINUE_MSG });
     }
     ctx.info.historyChars = ctx.messages.reduce((sum, m) => sum + m.content.length, 0);
     ctx.info.totalChars = ctx.system.length + ctx.info.historyChars;
@@ -529,7 +535,7 @@ export async function render(root, { id }) {
         onJob: async (jobId, server) => {
           a.relayJob = jobId;
           a.relayContext = { server, connectionId: conn.id, base, continuation, usageKind,
-            inChars: ctx.info.totalChars + (continueNode ? base.length : 0),
+            inChars: ctx.info.totalChars,
             connection: Object.fromEntries(['format', 'model', 'stream', 'priceMode', 'pricePerCall', 'priceIn', 'priceOut', 'priceCache', 'currency'].map((k) => [k, conn[k]])) };
           try { await db.put('nodes', a); }
           catch { throw new ApiError('storage', '无法保存后台任务', { hint: '请先检查设备存储空间，再重试。' }); }
@@ -548,8 +554,8 @@ export async function render(root, { id }) {
         onConnPatch: (p) => { if (conn) { Object.assign(conn, p); db.put('connections', { ...conn }).catch(() => {}); } },
       });
       a.text = base + r.text;
-      a.status = r.truncated ? 'partial' : 'done';
-      a.finish = r.finish || null;
+      a.status = r.truncated || r.interrupted ? 'partial' : 'done';
+      a.finish = r.interrupted ? 'interrupted' : r.finish || null;
       usageRaw = r.usage || null;
       a.flagged = !!r.flagged;
     } catch (e) {
@@ -578,7 +584,7 @@ export async function render(root, { id }) {
       // 用量与花费：这一次请求写出了内容才记账
       const outChars = Math.max(0, (a.text || '').length - base.length);
       if (!pendingRelay && (outChars > 0 || usageRaw)) {
-        const inChars = a.relayContext?.inChars ?? ctx.info.totalChars + (continueNode ? base.length : 0);
+        const inChars = a.relayContext?.inChars ?? ctx.info.totalChars;
         const u = normalizeUsage(usageRaw, { inChars, outChars });
         const c = computeCost(u, conn);
         // 续写/从某段重写：把这次的花费累加到同一条上
@@ -604,7 +610,7 @@ export async function render(root, { id }) {
       story.updatedAt = Date.now();
       await saveStory();
       if (!destroyed) renderFeed({ keepScroll: true });
-      if (!pendingRelay && a.kind !== 'ooc' && a.text?.trim() && a.status !== 'error') autoArchive(false);
+      if (a.kind !== 'ooc' && a.text?.trim() && a.status === 'done') autoArchive(false);
     }
   }
 
@@ -660,7 +666,19 @@ export async function render(root, { id }) {
   }
   async function cont(n) {
     const u = nodes.get(n.parentId);
-    if (u) await generate(u, { continueNode: n });
+    if (!u || n.relayJob || !n.text?.trim() || story.headId !== n.id || st.addingOpts) return;
+    const parsed = n.status === 'done' && !isOoc(n) ? parseReply(n.text) : null;
+    const hasFooter = parsed && (parsed.danmu.length || parsed.options.length);
+    if (n.checkpoint || childrenOf(n.id).length || archivingNow(story.id) || hasFooter) {
+      // 完成章的弹幕和选项随新结尾重写；保留原版及其分支。
+      const text = hasFooter
+        ? [parsed.title && '# ' + parsed.title, parsed.body].filter(Boolean).join('\n\n') + '\n\n'
+        : n.text;
+      const version = { id: uid(), storyId: n.storyId, parentId: n.parentId, role: n.role, kind: n.kind, text, createdAt: Date.now() };
+      await generate(u, { continueNode: version });
+    } else {
+      await generate(u, { continueNode: n });
+    }
   }
   async function switchVersion(target) {
     if (!target || st.streaming) return;

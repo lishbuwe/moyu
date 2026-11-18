@@ -278,7 +278,7 @@ function checkConn(conn) {
 /**
  * 流式生成。
  * onText(delta, full) 每收到一段正文调用；onThinking() 收到思考内容时调用。
- * 返回 { text, finish, usage, truncated, flagged }。
+ * 返回 { text, finish, usage, truncated, interrupted, flagged }。
  * 出错时抛 ApiError，已收到的正文在 err.partial 里。
  */
 export async function streamChat(conn, opts = {}) {
@@ -317,6 +317,7 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
 
   let text = '';
   let finish = null;
+  let interrupted = false;
   let usage = null;
   let sawThinking = false;
   const fail = (e) => { if (e instanceof ApiError && !e.partial) e.partial = text; return e; };
@@ -362,10 +363,12 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
       let buf = '';
       let rawHead = '';
       let sawData = false;
+      let sawEnd = false;
       const handle = (line) => {
         if (!line.startsWith('data:')) return;
         const d = line.slice(5).trim();
-        if (!d || d === '[DONE]') return;
+        if (!d) return;
+        if (d === '[DONE]') { sawEnd = true; return; }
         sawData = true;
         let j;
         try { j = JSON.parse(d); } catch { return; }
@@ -381,6 +384,8 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
             if (j.usage) usage = { ...(usage || {}), ...j.usage };
           } else if (j.type === 'message_start' && j.message?.usage) {
             usage = { ...j.message.usage };
+          } else if (j.type === 'message_stop') {
+            sawEnd = true;
           }
           // 也兼容少数把 Claude 格式转成 OpenAI 块的中转
           if (j.choices) handleOpenAI(j);
@@ -415,6 +420,7 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
         }
       }
       if (buf.trim()) handle(buf.trim());
+      interrupted = sawData && !sawEnd && !finish;
       if (!sawData && rawHead.trim()) {
         // 声称流式、实际一次性返回 JSON 的接口
         try {
@@ -443,7 +449,8 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
     text,
     finish,
     usage,
-    truncated: /^(length|max_tokens)$/i.test(f),
+    truncated: /^(length|max_tokens|max_output_tokens)$/i.test(f),
+    interrupted,
     flagged: /content_filter|refusal|safety/i.test(f),
   };
 }

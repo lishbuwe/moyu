@@ -1,10 +1,10 @@
 // 墨游 · 角色：照老版的“登场人物”卡片；点开看全部，编辑在弹出层里
 
 import { db } from '../db.js';
-import { el, uid, toast, sheet } from '../util.js';
+import { el, uid, toast, sheet, pickRawFile, saveFile } from '../util.js';
 import { connLabel, resolveConnection, go, setCurrentStory, watchStory, PLAY_KEYS } from '../state.js';
 import { streamWithRetry } from '../api.js';
-import { latestCheckpoint, memoryText, splitNames } from '../prompt.js';
+import { applyCardState, latestCheckpoint, memoryText, splitNames } from '../prompt.js';
 import { chaptersOf } from '../fanwai.js';
 import { normalizeUsage, computeCost, recordUsage } from '../cost.js';
 import { loadStoryState } from '../discuss.js';
@@ -18,6 +18,44 @@ function pathTo(nodes, nodeId) {
   return out;
 }
 const lines = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean);
+const CARD_FIELDS = {
+  npc: ['name', 'aliases', 'initial', 'base', 'voice', 'forbid', 'arc', 'now', 'relation', 'core'],
+  protagonist: ['name', 'gender', 'note'],
+};
+const CARD_APP = 'moyu-character';
+const nameKey = (name) => (name || '').trim().toLowerCase();
+const sameName = (cards, name) => cards.find((c) => nameKey(c.name) === nameKey(name));
+const memoryCard = (mem, name) => mem?.cards && Object.hasOwn(mem.cards, name) ? mem.cards[name] : null;
+
+async function exportCard(kind, source) {
+  const card = Object.fromEntries(CARD_FIELDS[kind].map((key) => [key, key === 'core' ? !!source[key] : source[key] || '']));
+  const name = (card.name || '主角').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 65);
+  try {
+    if (await saveFile('墨游角色卡-' + name + '.json', JSON.stringify({ app: CARD_APP, version: 1, kind, card }, null, 2))) toast('角色卡已导出');
+  } catch { toast('角色卡导出失败'); }
+}
+
+async function readCardFile() {
+  try {
+    const file = await pickRawFile('.json,application/json');
+    if (!file) return null;
+    const data = JSON.parse((await file.text()).replace(/^\uFEFF/, ''));
+    if (data?.app !== CARD_APP || data.version !== 1 || !Object.hasOwn(CARD_FIELDS, data.kind) ||
+        !data.card || Array.isArray(data.card) || typeof data.card !== 'object') throw new Error();
+    const card = {};
+    for (const key of CARD_FIELDS[data.kind]) {
+      if (!Object.hasOwn(data.card, key)) continue;
+      if (typeof data.card[key] !== (key === 'core' ? 'boolean' : 'string')) throw new Error();
+      card[key] = data.card[key];
+    }
+    if (data.kind === 'npc' && !card.name?.trim()) throw new Error();
+    if (data.kind === 'protagonist' && (!Object.keys(card).length || (card.gender != null && !['', '女', '男', '其他'].includes(card.gender)))) throw new Error();
+    return { kind: data.kind, card };
+  } catch {
+    toast('无法读取这张角色卡，请选择墨游单张角色卡的 JSON 文件', 4000);
+    return null;
+  }
+}
 
 export async function render(root, { id }) {
   const story = await db.get('stories', id);
@@ -33,7 +71,7 @@ export async function render(root, { id }) {
   const cp = () => latestCheckpoint(pathTo(nodes, story.headId));
   const stateOf = (c) => {
     const m = cp();
-    const s = m?.mem?.cards?.[c.name];
+    const s = memoryCard(m?.mem, c.name);
     return { now: s?.now ?? c.now, arc: s?.arc ?? c.arc, relation: s?.relation ?? c.relation, from: s ? m.mem.upTo : 0 };
   };
 
@@ -41,6 +79,7 @@ export async function render(root, { id }) {
   root.append(el('div', { class: 'view' },
     el('div', { class: 'topbar' },
       el('div', { class: 'title', style: { paddingLeft: '6px' } }, '角色', el('div', { class: 'sub', text: story.title || '未命名故事' })),
+      el('button', { class: 'btn small ghost', onclick: importCard }, '导入角色卡'),
       el('button', { class: 'icon-btn', 'aria-label': '新角色', onclick: () => editCard(null) }, '＋')),
     el('div', { class: 'scroll' }, wrap)));
 
@@ -186,9 +225,18 @@ export async function render(root, { id }) {
     s.body.append(status, recent, run, results);
     s.foot.append(el('button', { class: 'btn ghost', onclick: () => s.close() }, '取消'), save);
   }
-  function editProtagonist() {
-    const p = { ...(story.protagonist || {}) };
-    const s = sheet({ title: '主角（你）' });
+  async function importCard() {
+    const incoming = await readCardFile();
+    if (!incoming || !wrap.isConnected) return;
+    const fresh = await db.get('stories', id);
+    if (!fresh) { toast('找不到这个故事'); return; }
+    if (incoming.kind === 'protagonist') editProtagonist(incoming.card);
+    else editCard(sameName(fresh.cards || [], incoming.card.name) || null, incoming.card);
+  }
+
+  function editProtagonist(incoming = null) {
+    const p = { ...story.protagonist, ...incoming };
+    const s = sheet({ title: incoming ? '预览导入 · 主角' : '主角（你）' });
     const name = el('input', { type: 'text', placeholder: '填写主角名字' }); name.value = p.name || '';
     const gender = el('select');
     for (const g of ['', '女', '男', '其他']) gender.append(el('option', { value: g }, g || '不指定'));
@@ -198,7 +246,9 @@ export async function render(root, { id }) {
     const aiStatus = el('div', { class: 'hint' });
     const aiBtn = el('button', { class: 'btn small', onclick: () => aiFill() }, '从设定补充初始资料');
     s.body.append(
-      el('div', { class: 'row', style: { margin: '0 0 10px' } }, aiBtn), aiStatus,
+      el('div', { class: 'row', style: { margin: '0 0 10px' } }, aiBtn,
+        el('button', { class: 'btn small', onclick: () => exportCard('protagonist', { name: name.value, gender: gender.value, note: note.value }) }, '导出主角卡')), aiStatus,
+      incoming ? el('div', { class: 'hint', text: '保存后应用到这部故事的主角初始资料。' }) : null,
       el('div', { class: 'field' }, el('label', { text: '名字' }), name),
       el('div', { class: 'field' }, el('label', { text: '性别' }), gender, genderHint),
       el('div', { class: 'field' }, el('label', { text: '其他' }), note));
@@ -238,9 +288,19 @@ export async function render(root, { id }) {
       } finally { aiBtn.disabled = false; }
     }
     s.foot.append(el('button', { class: 'btn ghost', onclick: () => s.close() }, '取消'),
-      el('button', { class: 'btn primary', onclick: async () => {
-        story.protagonist = { ...(story.protagonist || {}), name: name.value.trim(), gender: gender.value, note: note.value.trim() };
-        await saveNow(); s.close(); toast('已保存'); draw();
+      el('button', { class: 'btn primary', onclick: async (e) => {
+        const button = e.currentTarget;
+        button.disabled = true;
+        try {
+          const fresh = await db.get('stories', id);
+          if (!fresh) throw new Error('找不到这个故事');
+          fresh.protagonist = { ...fresh.protagonist, name: name.value.trim(), gender: gender.value, note: note.value.trim() };
+          fresh.updatedAt = Date.now();
+          await db.put('stories', fresh);
+          story.protagonist = fresh.protagonist;
+          s.close(); toast('主角卡已保存'); draw();
+        } catch (error) { toast('保存失败：' + error.message); }
+        finally { button.disabled = false; }
       } }, '保存'));
   }
 
@@ -276,15 +336,15 @@ export async function render(root, { id }) {
   window.addEventListener('moyu:cards', onCards);
   const unwatch = watchStory(story, null, PLAY_KEYS);
 
-  function editCard(existing) {
+  function editCard(existing, incoming = null) {
     const isNew = !existing;
-    const c = existing ? { ...existing } : { id: uid(), name: '', aliases: '', core: story.cards.length < 3, initial: '', base: '', voice: '', forbid: '', arc: '', now: '', relation: '' };
+    const draftId = existing?.id || uid();
     // 整理过前情、档案里有这个人：这三栏以档案为准，编辑的也是档案里的那份
     const m = cp();
-    const memEntry = existing && m?.mem?.cards?.[existing.name] ? m.mem.cards[existing.name] : null;
-    if (memEntry) { c.now = memEntry.now ?? c.now; c.arc = memEntry.arc ?? c.arc; c.relation = memEntry.relation ?? c.relation; }
+    const memEntry = existing && memoryCard(m?.mem, existing.name);
+    const c = { ...(existing ? applyCardState(existing, m?.mem) : { core: story.cards.length < 3 }), ...incoming };
     const memHint = memEntry ? `现在以前情档案（整理到第 ${m.mem.upTo} 章）为准，改了会一起改档案。` : '';
-    const s = sheet({ title: isNew ? '新角色' : (c.name || '角色卡') });
+    const s = sheet({ title: incoming ? '预览导入 · ' + c.name : isNew ? '新角色' : (c.name || '角色卡') });
     const f = {};
     const field = (key, label, { tall = false, hint = '', lock = false, ph = '' } = {}) => {
       const inp = tall ? el('textarea', { placeholder: ph }) : el('input', { type: 'text', placeholder: ph });
@@ -294,7 +354,24 @@ export async function render(root, { id }) {
       return el('div', { class: 'field' }, el('label', { text: (lock ? '🔒 ' : '') + label }), inp, hint ? el('div', { class: 'hint', text: hint }) : null);
     };
     const core = el('input', { type: 'checkbox' }); core.checked = !!c.core;
+    const readForm = () => ({ ...Object.fromEntries(Object.entries(f).map(([key, input]) => [key, input.value])), name: f.name.value.trim(), core: core.checked });
+    const importHint = el('div', { class: 'hint', text: incoming ? (existing ? `保存后更新「${existing.name}」的角色卡。` : '保存后添加为新角色。') : '' });
+    const tools = el('div', { class: 'row' },
+      el('button', { class: 'btn small', onclick: () => {
+        const card = readForm();
+        if (!card.name) { toast('名字要填'); return; }
+        void exportCard('npc', card);
+      } }, '导出角色卡'),
+      existing ? el('button', { class: 'btn small', onclick: async () => {
+        const data = await readCardFile();
+        if (!data || !s.panel.isConnected) return;
+        if (data.kind !== 'npc') { toast('这是一张主角卡，请从角色页导入'); return; }
+        for (const [key, input] of Object.entries(f)) if (Object.hasOwn(data.card, key)) input.value = data.card[key];
+        if (Object.hasOwn(data.card, 'core')) core.checked = data.card.core;
+        importHint.textContent = `保存后更新「${existing.name}」的角色卡。`;
+      } }, '导入到这张卡') : null);
     s.body.append(
+      tools, importHint,
       el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '12px' } }, '🔒 的几栏是这个人的底稿，以后的自动存档不会改它们，只有你能改。写成具体动作比形容词管用：不写“他很傲娇”，写“被夸时会岔开话题，过一会儿又绕回来问你是不是真心的”。'),
       field('name', '名字', { ph: '例：沈澜' }),
       field('aliases', '别名', { ph: '用顿号分开，例：沈总、阿澜', hint: '剧情里出现名字或别名，就算“被提到”。' }),
@@ -308,32 +385,51 @@ export async function render(root, { id }) {
       field('relation', '关系档案', { tall: true, ph: '相处梗、称呼史、生效中的约定、亲密档案', hint: memHint }),
     );
     s.foot.append(...[
-      isNew ? null : el('button', {
+      isNew || incoming ? null : el('button', {
         class: 'btn danger', style: { marginRight: 'auto' },
         onclick: async () => {
           if (!confirm(`删除「${c.name || '这个角色'}」的角色卡？`)) return;
-          story.cards = story.cards.filter((x) => x.id !== c.id);
+          story.cards = story.cards.filter((x) => x.id !== draftId);
           await saveNow(); s.close(); redraw();
         },
       }, '删除'),
       el('button', { class: 'btn ghost', onclick: () => s.close() }, '取消'),
       el('button', {
         class: 'btn primary',
-        onclick: async () => {
-          for (const k of Object.keys(f)) c[k] = f[k].value;
-          c.name = c.name.trim();
-          if (!c.name) { toast('名字要填'); return; }
-          c.core = core.checked;
-          c.updatedAt = Date.now();
-          delete c.auto;
-          const i = story.cards.findIndex((x) => x.id === c.id);
-          if (i >= 0) story.cards[i] = c; else story.cards.push(c);
-          if (memEntry) {
-            if (existing.name !== c.name) delete m.mem.cards[existing.name];
-            m.mem.cards[c.name] = { ...memEntry, now: c.now, arc: c.arc, relation: c.relation };
-            await db.put('nodes', m.node).catch(() => {});
-          }
-          await saveNow(); s.close(); toast('角色卡已保存'); redraw();
+        onclick: async (e) => {
+          const fields = readForm();
+          if (!fields.name) { toast('名字要填'); return; }
+          const button = e.currentTarget;
+          button.disabled = true;
+          try {
+            const fresh = await loadStoryState(id);
+            if (!fresh) throw new Error('找不到这个故事');
+            const cards = fresh.story.cards || [];
+            const target = existing && cards.find((x) => x.id === draftId);
+            if (existing && !target) throw new Error('这张卡已被删除，请重新选择');
+            if ((!target || nameKey(fields.name) !== nameKey(target.name)) &&
+                sameName(cards.filter((x) => x.id !== draftId), fields.name)) {
+              throw new Error('已有同名角色，请修改名字或打开对应的卡导入');
+            }
+            const updated = { ...target, ...fields, id: draftId, updatedAt: Date.now() };
+            delete updated.auto;
+            fresh.story.cards = target ? cards.map((x) => x.id === draftId ? updated : x) : [...cards, updated];
+            fresh.story.updatedAt = Date.now();
+            const checkpoint = fresh.cp;
+            const state = target && memoryCard(checkpoint?.mem, target.name);
+            if (state) {
+              if (m?.node.id !== checkpoint.node.id) throw new Error('前情档案已变化，请重新打开角色卡');
+              const { now, arc, relation } = updated;
+              if (target.name !== updated.name && memoryCard(checkpoint.mem, updated.name)) throw new Error('前情档案已有同名角色');
+              checkpoint.mem.cards = { ...checkpoint.mem.cards, [updated.name]: { ...state, now, arc, relation } };
+              if (target.name !== updated.name) delete checkpoint.mem.cards[target.name];
+              await db.putStoryWithNode(fresh.story, checkpoint.node);
+              nodes.set(checkpoint.node.id, checkpoint.node);
+            } else await db.put('stories', fresh.story);
+            story.cards = fresh.story.cards;
+            s.close(); toast('角色卡已保存'); redraw();
+          } catch (error) { toast('保存失败：' + error.message, 4000); }
+          finally { button.disabled = false; }
         },
       }, '保存'),
     ].filter(Boolean));

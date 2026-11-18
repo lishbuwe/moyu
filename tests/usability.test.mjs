@@ -101,6 +101,97 @@ test('番外重写、切回旧版本后续写绑定各自素材与要求，重�
   } finally {dispose();}
 });
 
+test('正文流式结束时没有终止标记，显示续写并接到同一章', async () => {
+  const {story} = await seedStory();
+  const conn = await db.get('connections', 'qa-conn');
+  await db.put('connections', {...conn, stream: true});
+  const okFetch = globalThis.fetch;
+  let sent = 0;
+  globalThis.fetch = async (url, init) => {
+    if (sent++) return okFetch(url, init);
+    const chunk = JSON.stringify({choices: [{delta: {content: '# 半章\n\n他打开'}}]});
+    return new Response('data: ' + chunk + '\n\n', {headers: {'Content-Type': 'text/event-stream'}});
+  };
+  const dispose = await play.render(root, {id: story.id});
+  try {
+    button('继续').click();
+    await wait(() => sent === 1 && !dispose.busy());
+    const interrupted = (await db.get('stories', story.id)).headId;
+    assert.equal((await db.get('nodes', interrupted)).status, 'partial');
+    assert.ok(root.textContent.includes('接口没发结束标记'));
+    assert.equal(getComputedStyle(root.querySelector('.play-scroll')).overflowX, 'hidden');
+    assert.equal(getComputedStyle(root.querySelector('.play-scroll .feed')).overflowWrap, 'anywhere');
+    responses.push('信封。' + options);
+    button('续写').click();
+    await wait(() => requests.length === 1 && !dispose.busy());
+    assert.equal((await db.get('stories', story.id)).headId, interrupted);
+    assert.ok(requests[0].body.messages.at(-2).content.endsWith('他打开'));
+    assert.equal((await db.get('nodes', interrupted)).text, '# 半章\n\n他打开信封。' + options);
+  } finally { dispose(); }
+});
+
+test('已完成章也可续写，旧选项留在原版，新增正文正常显示在新版本', async () => {
+  const {story, nodes} = await seedStory();
+  const dispose = await play.render(root, {id: story.id});
+  try {
+    responses.push('他在新办公室坐下。' + options);
+    button('续写').click();
+    await wait(() => requests.length === 1 && !dispose.busy());
+    const head = (await db.get('stories', story.id)).headId;
+    assert.notEqual(head, story.headId);
+    assert.equal((await db.get('nodes', head)).parentId, nodes[1].parentId);
+    assert.equal((await db.get('nodes', story.headId)).text, nodes[1].text);
+    assert.ok(!requests[0].body.messages.at(-2).content.includes('查看地图'));
+    assert.equal(root.querySelector('.gm p:last-of-type').textContent, '他在新办公室坐下。');
+  } finally { dispose(); }
+});
+
+test('单张角色卡导出当前前情状态，重新导入只更新选中角色且需保存', async (t) => {
+  const {story, nodes} = await seedStory();
+  const card = {id: 'char-qa', name: '顾安', initial: '旧人设', core: false, now: '初始状态'};
+  const other = {id: 'other-qa', name: '夏宁', initial: '另一个人'};
+  await db.put('stories', {...story, cards: [card, other]});
+  await db.put('nodes', {...nodes[1], checkpoint: {upTo: 1, items: ['保留信封'], cards: {'顾安': {now: '分支当前状态', arc: '变化', relation: '友人'}}}});
+  let exported;
+  t.mock.method(URL, 'createObjectURL', (blob) => {
+    exported = blob.text();
+    return 'blob:https://qa.example/character';
+  });
+  t.mock.method(dom.window.HTMLAnchorElement.prototype, 'click', () => {});
+  let fileText;
+  t.mock.method(dom.window.HTMLInputElement.prototype, 'click', function () {
+    Object.defineProperty(this, 'files', {value: [new File([fileText], '角色卡.json')]});
+    this.dispatchEvent(new Event('change'));
+  });
+  const dispose = await chars.render(root, {id: story.id});
+  try {
+    button('编辑', root.querySelector('[data-name="顾安"]')).click();
+    button('导出角色卡').click();
+    await wait(() => exported);
+    const data = JSON.parse(await exported);
+    assert.equal(data.card.now, '分支当前状态');
+    assert.equal(data.card.core, false);
+    assert.equal(data.card.id, undefined);
+    button('取消').click();
+    fileText = JSON.stringify({...data, card: {...data.card, initial: '修订人设', now: '修订状态', id: other.id}, world: '不会被导入'});
+    button('导入角色卡').click();
+    await wait(() => document.querySelector('[role="dialog"]'));
+    assert.equal((await db.get('stories', story.id)).cards[0].initial, '旧人设');
+    button('保存').click();
+    await wait(() => !document.querySelector('[role="dialog"]'));
+    const saved = await db.get('stories', story.id);
+    assert.equal(saved.cards[0].id, card.id);
+    assert.equal(saved.cards[0].initial, '修订人设');
+    assert.deepEqual(saved.cards[1], other);
+    assert.equal(saved.world, story.world);
+    assert.equal(saved.headId, story.headId);
+    const chapter = await db.get('nodes', story.headId);
+    assert.equal(chapter.text, nodes[1].text);
+    assert.deepEqual(chapter.checkpoint.items, ['保留信封']);
+    assert.equal(chapter.checkpoint.cards['顾安'].now, '修订状态');
+  } finally { dispose(); }
+});
+
 test('Markdown按文件分组，批量删除撤销不覆盖之后新建的模块',async()=>{
   const a=await importMarkdownPack('## 节奏\n写具体行动\n## 对白\n各有口吻','文风甲.md');
   assert.equal(a.mods.length,2);assert.equal(a.mods[0].pack,a.mods[1].pack);
