@@ -332,7 +332,7 @@ export async function render(root, { section }) {
 
     // Google Vertex AI：不用地址和 sk- 密钥，改成粘贴服务账号 JSON + 地区
     const isV = () => fmt.value === 'vertex';
-    const saText = el('textarea', { class: 'tall', placeholder: '把服务账号的 .json 文件内容整段粘贴进来（包括最外层的 { 和 }）', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', style: { fontFamily: 'ui-monospace, monospace', fontSize: '12px' } });
+    const saText = el('textarea', { class: 'tall', placeholder: '把服务账号的 .json 文件内容整段粘贴进来（包括最外层的 { 和 }）', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', style: { fontFamily: 'ui-monospace, monospace', fontSize: '16px' } });
     if (c.format === 'vertex') saText.value = c.apiKey || '';
     const saStatus = el('div', { class: 'hint' });
     const checkSa = () => {

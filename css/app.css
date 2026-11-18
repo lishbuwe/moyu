@@ -41,6 +41,8 @@
 :root[data-indent="off"] { --indent: 0; }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* 双击正文不触发页面放大；保留滚动和双指缩放。禁止 iOS 自动重排局部文字字号。 */
+html, body, #app { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); }
 body { font-family: var(--ui-font); font-size: 15px; overscroll-behavior: none; }
 button, input, textarea, select { font: inherit; color: inherit; }
@@ -124,7 +126,7 @@ a { color: var(--accent); }
 
 .field { margin-bottom: 14px; }
 .field > label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
-.field input[type=text], .field input[type=password], .field input[type=number], .field input:not([type]),
+.field input[type=text], .field input[type=password], .field input[type=number], .field input[type=url], .field input:not([type]),
 .field textarea, .field select {
   width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 10px;
   padding: 10px 12px; font-size: 16px; outline: none;
@@ -308,7 +310,7 @@ a { color: var(--accent); }
 .composer .input-shell textarea { order: 0; border: 0; min-height: 42px; background: transparent; padding-left: 12px; padding-right: 4px; }
 .bracket-btn {
   order: 1; flex: none; width: 40px; height: 42px; padding: 0; border: 0; border-radius: 12px;
-  background: transparent; color: var(--text2); font-size: 15px; cursor: pointer; touch-action: manipulation;
+  background: transparent; color: var(--text2); font-size: 15px; cursor: pointer;
 }
 .bracket-btn:active { background: var(--accent-soft); }
 .text-highlight { color: var(--accent); font-weight: 600; }
@@ -401,7 +403,7 @@ a { color: var(--accent); }
 .chg.off { opacity: .45; }
 .chg-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
 .chg-head input { width: 18px; height: 18px; accent-color: var(--accent); }
-.chg-text { width: 100%; margin-top: 8px; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px; font-size: 15px; line-height: 1.6; resize: none; color: var(--text); }
+.chg-text { width: 100%; margin-top: 8px; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px; font-size: 16px; line-height: 1.6; resize: none; color: var(--text); }
 .chg-old { font-size: 12.5px; color: var(--text3); text-decoration: line-through; margin-top: 6px; white-space: pre-wrap; }
 .segs { display: flex; gap: 6px; margin-top: 8px; }
 .segs > .seg { flex: 1; display: block; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 6px; font-size: 13px; color: var(--text2); cursor: pointer; overflow: visible; }
@@ -451,8 +453,8 @@ a { color: var(--accent); }
 .ex-callout { background: var(--bg2); padding: 12px 14px; border-radius: 9px; margin: 14px 0; font-size: 14px; }
 .ex-callout .ex-badge { margin-bottom: 6px; }
 .ex-prescription { border-left: 3px solid var(--accent); background: var(--accent-soft); font-family: var(--read-font); }
-.ex-danmu { display: flex; overflow-x: auto; gap: 8px; margin-top: 16px; padding-bottom: 6px; scrollbar-width: thin; }
-.ex-danmu span { white-space: nowrap; border-radius: 20px; background: var(--accent-soft); color: var(--accent); padding: 4px 12px; font-size: 12px; }
+.ex-danmu { display: grid; gap: 7px; margin-top: 16px; overflow: visible; padding-bottom: 0; }
+.ex-danmu span { white-space: normal; overflow-wrap: anywhere; border-radius: 7px; background: var(--accent-soft); color: var(--accent); padding: 6px 10px; font-size: 12px; line-height: 1.65; }
 .ex-fic { border-top: 3px solid var(--accent); }
 .ex-fic-text { font-family: var(--read-font); font-size: var(--read-size); margin: 22px 0; line-height: 1.95; }
 .ex-stats { border-top: 1px solid var(--line); padding-top: 12px; }
@@ -473,8 +475,6 @@ a { color: var(--accent); }
 .ex-chat .ex-bubble { padding: 6px 9px; max-width: 87%; font-size: 14px; line-height: 1.6; border-radius: 3px 10px 10px; }
 .ex-chat .ex-message.mine .ex-bubble { border-radius: 10px 3px 10px 10px; }
 .ex-chat .ex-system { margin: 7px 0; line-height: 1.5; }
-.ex-danmu { display: grid; gap: 7px; overflow: visible; padding-bottom: 0; }
-.ex-danmu span { white-space: normal; overflow-wrap: anywhere; border-radius: 7px; padding: 6px 10px; line-height: 1.65; }
 .ex-report-document { border: 1px solid var(--line); border-top: 3px solid var(--accent); background: var(--card); border-radius: 12px; padding: 18px; margin: 20px 0; }
 .ex-report-document .ex-report { border: 0; border-radius: 0; background: transparent; padding: 0; margin: 0; }
 .ex-report-document .ex-case { padding: 10px 0; }
@@ -510,8 +510,7 @@ a { color: var(--accent); }
 .ex-fic-comments .ex-post { padding: 10px 0; background: transparent; }
 .ex-fic-comments .ex-post .ex-body { font-size: 13px; line-height: 1.7; }
 .ex-fic-comments .ex-avatar { width: 23px; height: 23px; font-size: 10px; }
-/* 报告中的附件聊天独立于正文阅读字号，防止手机自动放大。 */
-.ex-chat { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* 报告中的附件聊天独立于正文阅读字号。 */
 .ex-report-document .ex-chat .ex-bubble { font-size: 12px; line-height: 1.65; padding: 5px 7px; }
 .ex-report-document .ex-chat .ex-chat-head { font-size: 12px; }
 .ex-report-document .ex-chat .ex-chat-avatar { width: 22px; height: 22px; font-size: 10px; }

@@ -143,6 +143,8 @@ let fullH = 0;
 let lastW = 0;
 function fitViewport() {
   const vv = window.visualViewport;
+  // 双指放大时 visualViewport 也会缩小并平移；它不是键盘，不能据此重排应用。
+  if (vv?.scale > 1.01) return;
   const h = vv ? vv.height : window.innerHeight;
   const top = vv ? Math.max(0, vv.offsetTop) : 0;
   const w = window.innerWidth;
