@@ -12,6 +12,8 @@ import { playbookOf, layoutOf, FIC_AXES } from '../extra-playbooks.js';
 import { cancelRelayJob } from '../relay.js';
 import { normalizeUsage, computeCost, fmtMoney, fmtTokens, recordUsage } from '../cost.js';
 import { getTemplates, getBase, buildExtraContext, chaptersOf, extraBlocks, SCOPES, LENGTHS, lengthOf } from '../fanwai.js';
+import { migrateCheckpoints } from '../structured-memory.js';
+import { inputBudgetChars } from '../prompt.js';
 
 const SCOPE_SHORT = { all: '全知', public: '只知道公开的事', char: '视角角色所知' };
 
@@ -43,6 +45,8 @@ export async function render(root, { id, extraId }) {
   const story = await db.get('stories', id);
   if (!story) { toast('找不到这个故事'); setCurrentStory(null); go(''); return; }
   const nodes = new Map((await db.byStory(id)).map((n) => [n.id, n]));
+  const migration = await migrateCheckpoints(nodes, db);
+  if (migration.failed) toast(`${migration.failed} 份旧档案暂未迁移，已保留原文；请检查设备存储空间`, 5000);
   if (extraId) return renderReader(root, story, nodes, extraId);
   return renderList(root, story, nodes);
 }
@@ -100,6 +104,7 @@ async function newExtra(story, nodes) {
   const fresh = await db.get('stories',story.id);
   if(!fresh){toast('找不到这个故事');return;}
   story = fresh; nodes = new Map((await db.byStory(story.id)).map(n=>[n.id,n]));
+  await migrateCheckpoints(nodes, db);
   const templates = await getTemplates();
   const modules = [...(await getModules()), ...(story.localModules || [])];
   const enabledAlways = modules.filter((m) => m.mode !== 'manual' && m.mode !== 'keyword' && story.modules?.[m.id]);
@@ -179,7 +184,8 @@ async function newExtra(story, nodes) {
     el('div', { class: 'field' }, el('label', { text: '时间点' }), anchorSel, el('div', { class: 'hint', text: '时间点之后的正史一律不发给模型，番外就不会提前写到。' })),
     el('div', { class: 'field' }, el('label', { text: '带上时间点前最近几章的原文' }), recent, el('div', { class: 'hint', text: '让模型熟悉人物口吻和最近发生的事。更早的剧情可以在下面单独指定。' })),
     chapters.length ? el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer' }, text: '额外指定章节作素材（可选）' }), pinBox) : null,
-    el('div', { class: 'field', style: { marginTop: '12px' } }, el('label', { text: '知情范围' }), scopeSel),
+    el('div', { class: 'field', style: { marginTop: '12px' } }, el('label', { text: '知情范围' }), scopeSel,
+      el('div', { class: 'hint', text: '全知会带最近原文；公开或角色视角只带明确标注其知情范围的记忆，未知知情者的原文会保守排除。' })),
     el('div', { class: 'field' }, el('label', { text: '篇幅' }), lenSeg, lenCustom, el('div', { class: 'hint', text: '很长的番外模型可能一次写不完，写完后点“接着写”可以续上。' })),
     enabledAlways.length ? el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '带上这个故事的规则模块', el('small', { text: enabledAlways.map((m) => m.name).join('、') + '（不带正文的游玩规则）' })), withMods.el) : null,
   ].filter(Boolean));
@@ -343,15 +349,17 @@ async function renderReader(root, story, nodes, extraId) {
     await db.kvSet('extraConnectionId',selected); await save(); draw();
   }
 
-  async function buildCtx(request = x.request) {
+  async function buildCtx(request = x.request, budgetChars = 30000) {
     const modules = x.withModules ? [...(await getModules()), ...(story.localModules || [])].filter((m) => m.mode !== 'manual' && m.mode !== 'keyword' && story.modules?.[m.id]) : [];
     const base = await getBase();
     const path = x.anchorId ? pathTo(nodes, x.anchorId) : [];
+    const head = pathTo(nodes, story.headId);
+    const historyPath = path.length && head.some((n) => n.id === x.anchorId) ? head : path;
     const chapters = chaptersOf(path);
     return buildExtraContext(story, {
       chapters, anchorNo: chapters.length, recentN: x.recentN, pinned: x.pinned || [],
       template: { name: x.tplName, text: x.tplText, scope: x.tplScope, layout:x.layout }, variant:x.variant, cast:x.cast, request, scope: x.scope, pov: x.pov,
-      length: x.length, modules, base,
+      length: x.length, modules, base, path, historyPath, budgetChars,
     });
   }
 
@@ -408,7 +416,8 @@ async function renderReader(root, story, nodes, extraId) {
     const resumeJob = resuming ? v.relayJob : null;
     const conn = resuming ? saved?.connection : await extraConnection(v?.connectionId || x.connectionId);
     if (!conn) { toast('这篇番外的 API 未选择或已被删除，请点右上角选择番外 API'); return; }
-    const ctx = v?.context || await buildCtx(v?.request ?? x.request);
+    const ctx = resuming && v?.context ? v.context : await buildCtx(v?.request ?? x.request, inputBudgetChars(conn));
+    if (!resuming && v) v.context = ctx; // 旧番外重写、续写也重建时间点素材。
     st.lastCtx = ctx;
     let base = stripReasoning(saved?.base,{streaming:true});
     const continuation = resuming ? saved.mode === 'continue' : mode === 'continue';
@@ -438,6 +447,10 @@ async function renderReader(root, story, nodes, extraId) {
     const onHide = () => { if (document.visibilityState === 'hidden') void save(); };
     document.addEventListener('visibilitychange', onHide);
     try {
+      const totalChars = ctx.system.length + messages.reduce((sum, m) => sum + m.content.length, 0);
+      if (!resuming && totalChars > inputBudgetChars(conn)) throw new ApiError('input_budget', '番外输入超过预算，尚未发送请求', {
+        hint: `目前约 ${totalChars.toLocaleString()} 字，预算 ${inputBudgetChars(conn).toLocaleString()} 字。已先削减检索细节；请减少手选章节、角色卡或提高连接的输入预算。`,
+      });
       const r = await streamWithRetry(conn, {
         system: ctx.system, messages, signal: ctrl.signal, maxTokens: Number(conn.maxTokens) || Math.min(8000, Math.ceil(lengthOf(x.length)[1] * 2) + 1500),
         resumeJob, relayServer: saved?.server || '',

@@ -5,6 +5,7 @@ import { db } from './db.js';
 import { uid } from './util.js';
 import { forContext, parseReply } from './parse.js';
 import { cardText, splitNames, protagonistText } from './prompt.js';
+import { layeredMemory, recordsAt } from './structured-memory.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
 import { castNames, castText } from './extra-options.js';
@@ -105,13 +106,31 @@ export function buildExtraContext(story, opts) {
   const recent = recentN > 0 ? upto.slice(-recentN) : [];
   const pinnedSet = new Set(pinned.filter((no) => no <= anchorNo));
   const layout = layoutOf(template);
-  const snapshotChapters = layout ? upto.slice(-3) : [];
-  const picked = upto.filter((c) => pinnedSet.has(c.no) || recent.includes(c) || snapshotChapters.includes(c));
-  const material = picked.map((c) => `【第${c.no}章${c.title ? ' · ' + c.title : ''}】${pinnedSet.has(c.no) ? '（指定素材）' : ''}\n${c.said ? '（主角：' + c.said.trim() + '）\n' : ''}${c.text}`).join('\n\n');
+  const rawAllowed = scope === 'all';
+  const snapshotChapters = layout && rawAllowed ? upto.slice(-3) : [];
+  // 知情范围不明的原文可能含有另一人的私密场景，严格视角下只使用带知情者的记忆。
+  const picked = rawAllowed ? upto.filter((c) => pinnedSet.has(c.no) || recent.includes(c) || snapshotChapters.includes(c)) : [];
+  const materialOf = (c) => `【第${c.no}章${c.title ? ' · ' + c.title : ''}】\n${c.said ? '（主角：' + c.said.trim() + '）\n' : ''}${c.text}`;
+  const recentMaterial = picked.filter((c) => !pinnedSet.has(c.no)).map(materialOf).join('\n\n');
+  const pinnedMaterial = picked.filter((c) => pinnedSet.has(c.no)).map(materialOf).join('\n\n');
+  const material = [recentMaterial, pinnedMaterial].filter(Boolean).join('\n\n');
+  const chosenPov = pov || opts.cast?.owner?.name || '';
+  const eligible = recordsAt(opts.historyPath || opts.path || [], anchorNo).filter((r) =>
+    scope === 'all' || (scope === 'public' ? r.knowers?.includes('公开') : r.knowers?.includes('公开') || (chosenPov && r.knowers?.includes(chosenPov))));
+  const memory = layeredMemory({ upTo: anchorNo, records: eligible }, [request, pov, castNames(opts.cast).join(' '), ...upto.slice(-2).map((c) => c.title)].join(' '),
+    { at: anchorNo, coreChars: 1800, stateChars: 700, retrieveChars: 3500 });
 
   // 角色卡：常驻的、视角角色、素材里被提到的
   const scan = material + '\n' + request + '\n' + pov + '\n' + castNames(opts.cast).join('\n');
-  const cards = (story.cards || []).filter((c) => c.name?.trim() && (['chat','fic'].includes(layout) || [opts.cast?.owner,opts.cast?.partner,opts.cast?.subject].some(p=>p?.kind==='mixed') || c.core || c.name === pov || splitNames(c).some((n) => (n === c.name || n.length >= 2) && scan.includes(n))));
+  const cards = (story.cards || []).filter((c) => c.name?.trim() && (!c.auto?.from || c.auto.from <= anchorNo) &&
+    (['chat','fic'].includes(layout) || [opts.cast?.owner,opts.cast?.partner,opts.cast?.subject].some(p=>p?.kind==='mixed') || c.core || c.name === pov || splitNames(c).some((n) => (n === c.name || n.length >= 2) && scan.includes(n))));
+  const pastCp = [...(opts.path || [])].reverse().find((n) => n.checkpoint?.upTo <= anchorNo)?.checkpoint;
+  const presentNow = Array.isArray(opts.historyPath) && opts.historyPath.filter((n) => n.role === 'assistant' && n.kind !== 'ooc').length <= anchorNo;
+  const asOfCard = (c) => {
+    if (presentNow) return c;
+    const saved = pastCp?.cards?.[c.name];
+    return { ...c, now: saved?.now || '', arc: saved?.arc || '', relation: saved?.relation || '' };
+  };
 
   const scopeText = scope === 'char' && ['show','chat','fic','report'].includes(layout) && opts.cast?.version >= 3
     ? '按各份材料的手机主人、报告作者、同人作者或在场人物分别限制其知情范围；关系对象不等于叙述者，不能因选了对方而把主角换成对方。私密真相若仅叙述者知道，不能泄漏给网友。'
@@ -132,7 +151,9 @@ export function buildExtraContext(story, opts) {
     add('玩法与快照', PLAYBOOK_COMMON);
     add('剧情快照材料', '【自动附带的剧情快照材料】\n'+
       '角色档案使用下方主角与角色卡，关系阶段、最近3件具体事件及未回收细节从下方最近章节提取；没有依据的口头禅、癖好与底线不补成事实。语气依据人设和本次要求选择。\n'+
-      (snapshotChapters.length ? snapshotChapters.map(c => `事件来源 第${c.no}章（${c.id}）：${c.title || '未命名'}，主角当轮行动：${c.said || '无'}；具体事件见下方本章原文。`).join('\n') : '正史还未开始，没有可评分的历史事件。报告应标记资料不足，其他玩法可依据人设原创非正史小事。'));
+      (snapshotChapters.length ? snapshotChapters.map(c => `事件来源 第${c.no}章（${c.id}）：${c.title || '未命名'}，主角当轮行动：${c.said || '无'}；具体事件见下方本章原文。`).join('\n')
+        : rawAllowed ? '正史还未开始，没有可评分的历史事件。报告应标记资料不足，其他玩法可依据人设原创非正史小事。'
+          : '本篇按知情范围只带明确可知的记忆；不要根据未发送的原文推断私密事件。资料不足就说明。'));
     add('材料排版', LAYOUT_GUIDE);
     if (PLAYBOOK_UPDATES[layout] && !template?.text?.includes(PLAYBOOK_UPDATES[layout])) add('当前玩法要求', PLAYBOOK_UPDATES[layout]);
     if (PLAYBOOK_RELATIONS[layout] && !template?.text?.includes(PLAYBOOK_RELATIONS[layout])) add('人物关系与材料整合',PLAYBOOK_RELATIONS[layout]);
@@ -143,20 +164,33 @@ export function buildExtraContext(story, opts) {
   add('知情范围', '【知情范围】\n' + scopeText);
   for (const m of modules) add(`规则模块 · ${m.name}`, `【规则模块·${m.name}】\n${m.text.trim()}`);
   add('世界设定', story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '');
-  add('主角', protagonistText(story, upto));
-  for (const c of cards) add(`角色卡 · ${c.name}`, cardText(c));
+  add('主角', protagonistText(story, opts.path || []));
+  if (memory.core) add('截至时间点的核心记忆', '【截至时间点已确认的核心记忆】\n' + memory.core);
+  if (memory.state) add('当时的状态', '【当时未决事项和物品】\n' + memory.state);
+  for (const c of cards) add(`角色卡 · ${c.name}`, cardText(asOfCard(c)));
+  if (memory.recalled) add('历史记忆检索', '【从此前全部合格记忆召回】\n' + memory.recalled);
   add('时间点', anchorNo > 0
     ? `【时间点】这篇番外发生在正史第 ${anchorNo} 章之后。第 ${anchorNo} 章之后的正史还没有发生，不要写到。`
     : '【时间点】正史还没开始，按设定写。');
-  add(`正史素材 · ${picked.length} 章`, material ? '【正史素材（只用来了解人物和发生过的事，不要照抄原句）】\n' + material : '');
+  add(`最近原文 · ${picked.length} 章`, recentMaterial ? '【时间点前最近原文】\n' + recentMaterial : '');
+  add('指定章节原文', pinnedMaterial ? '【手动指定的更早章节】\n' + pinnedMaterial : '');
   if(layout) add('当前叙事修订（优先于旧模板冲突条款）',extraEditorial(layout,opts.cast));
   add('最终输出要求',FINAL_OUTPUT_GUIDE);
-  const system = parts.map((p) => p.text).join('\n\n');
+  const budget = Number(opts.budgetChars) || 30000;
+  let system = parts.map((p) => p.text).join('\n\n');
   const user = `请写这篇番外，篇幅大约 ${lenChars} 字（${lenLabel}篇）${lenChars >= 5000 ? '，要写足，不要提前收尾' : ''}。` + (request.trim() ? `\n这次的要求：${request.trim()}` : '') + (pov && scope !== 'char' ? `\n视角角色：${pov}` : '');
+  const recall = parts.find((p) => p.label === '历史记忆检索');
+  if (recall) {
+    const available = Math.max(0, budget - (system.length - recall.text.length) - user.length - 150);
+    if (recall.text.length > available) recall.text = recall.text.slice(0, available).replace(/\n[^\n]*$/, '') || '';
+    if (!recall.text) parts.splice(parts.indexOf(recall), 1);
+    system = parts.map((p) => p.text).join('\n\n');
+  }
   return {
     system,
     messages: [{ role: 'user', content: user }],
-    info: { parts: parts.map((p) => ({ label: p.label, chars: p.text.length, text: p.text })), totalChars: system.length + user.length, chapters: picked.map((c) => c.no), cards: cards.map((c) => c.name), scope, layout, snapshotChapters: snapshotChapters.map(c=>c.no), variant: opts.variant || '', cast:opts.cast || null },
+    info: { parts: parts.map((p) => ({ label: p.label, chars: p.text.length, text: p.text })), totalChars: system.length + user.length, budgetChars: budget,
+      chapters: picked.map((c) => c.no), memoryHits: memory.hits, coreOmitted: memory.coreOmitted, cards: cards.map((c) => c.name), scope, layout, snapshotChapters: rawAllowed ? snapshotChapters.map(c=>c.no) : [], variant: opts.variant || '', cast:opts.cast || null },
   };
 }
 

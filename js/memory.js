@@ -6,8 +6,9 @@ import { streamWithRetry } from './api.js';
 import { latestCheckpoint, memoryText, applyCardState, splitNames, protagonistText } from './prompt.js';
 import { chaptersOf } from './fanwai.js';
 import { normalizeUsage, computeCost, recordUsage } from './cost.js';
+import { ensureStructured, syncStructured, addEvents } from './structured-memory.js';
 
-export const BATCH = 10;          // 一次最多整理多少章（太多会写不完，JSON 被截断）
+export const BATCH = 1;           // 一章结束整理一次，同一章节版本在 pendingChapters 中去重
 const SUMMARY_LIMIT = 8000;       // 各段摘要超过这么多字，就把最早的一半压缩成“早期概要”
 
 export function emptyMemory() {
@@ -90,6 +91,8 @@ function archivistPrompt(story, prev, batch) {
       protagonistText(story),
       cards ? '【角色卡（初始设定、原话、禁止清单这些不归你改；你只负责“当前状态”“变化轨迹”“关系档案”）】\n' + cards : '【角色卡】\n（还没有任何角色卡）',
       '【已有的前情档案】\n' + prevText,
+      prev.records?.length ? '【近期可覆盖的结构化记忆 ID】\n' + prev.records.filter((x) => x.invalidatedAt == null).slice(-80)
+        .map((x) => `${x.id}｜第${x.sourceFrom}${x.sourceTo !== x.sourceFrom ? '–' + x.sourceTo : ''}章｜${x.event.slice(0, 130)}`).join('\n') : '',
       `【新的剧情：第${from}–${to}章】\n` + batch.map(chapterBlock).join('\n\n'),
       '【请输出这个 JSON】\n' + JSON.stringify({
         summary: `第${from}–${to}章的剧情摘要，300到600字。按时间顺序写具体发生了什么：谁做了什么、说了哪句关键的话、局面怎么变了。不写评价`,
@@ -97,6 +100,9 @@ function archivistPrompt(story, prev, batch) {
         items: ['新增或变化的物品、信物、特殊标记：谁给了谁什么、现在在谁手里'],
         threads: ['更新后的完整列表：未决事项、承诺、暗线、已选但未演绎完的行动，以及玩家明确保留的后续提案。标明发生状态与具体内容，不只记选项字母；未选且未保留的提案不列为待办，已经解决的删掉。资料没有对应内容时放 unsure，不脑补'],
         knowledge: ['更新后的完整列表：重要的信息差，写成“某事：谁知道／谁不知道（从什么渠道知道）”，尤其写清主角自己知道什么'],
+        memories: [{ event: '本章具体事件或改变的事实，一条一件；无法确定归属章节就留空或写当前章', sourceChapter: from,
+          people: ['涉及的人物'], location: '地点，不确定则空字符串', items: ['物品和别名'], type: '关系/事实/承诺/物品/暗线',
+          importance: 7, irreversible: false, knowers: ['确实知道的人；原文没有说明就空数组'], tags: ['称呼、别名和可检索的关键词'], replaces: ['被覆盖的旧记忆 ID；无法确定就空数组'] }],
         offscreen: ['更新后的完整列表：主角看不见的地方，各角色接下来想做什么、正在做什么（只写正文里有迹可循的）'],
         repeats: ['最近这一段里反复出现、开始变成套路的互动或写法，接下来该避开的；没有就空数组'],
         newCharacters: [{
@@ -114,7 +120,7 @@ function archivistPrompt(story, prev, batch) {
         conflicts: ['新剧情和已有设定或档案矛盾的地方（不要自己改，列出来给玩家裁决）'],
         unsure: ['拿不准的地方'],
       }, null, 1),
-      'cards 里只写这一段出场或有变化、而且已经有角色卡的角色，键用角色卡上的名字；还没有卡的重要新角色写进 newCharacters。',
+      'cards 里只写这一段出场或有变化、而且已经有角色卡的角色，键用角色卡上的名字；还没有卡的重要新角色写进 newCharacters。memories 每条以本章为来源，能确认知情者才填写；旧事实被新事实取代时，在 replaces 里写旧条目的 ID，不能确认就不覆盖。',
     ].filter(Boolean).join('\n\n'),
   };
 }
@@ -226,6 +232,7 @@ async function runInner(story, nodes, path, conn, { signal, onProgress = () => {
   const { cp, upTo, pending } = pendingChapters(path);
   if (pending.length < minChapters) return { written: [], from: 0, to: 0 };
   let prev = cp ? cp.mem : emptyMemory();
+  ensureStructured(prev, cp?.node.id || '');
   const written = [];
   const newCards = [];
   let costSum = null;
@@ -270,6 +277,8 @@ async function runInner(story, nodes, path, conn, { signal, onProgress = () => {
     newCards.push(...(await addNewCharacters(story, j, from, to)).map((c) => c.name));
     let m = merge(prev, j, from, to, story);
     m = await compressIfLong(m, conn, signal, track);
+    syncStructured(m, m, { from, to, branchId: batch[batch.length - 1].id, metadata: j.memories });
+    addEvents(m, j.memories, from, to, batch[batch.length - 1].id);
     m.lastRun = { at: Date.now(), from, to, model: conn?.model || '', cost: costSum };
     const node = nodes.get(batch[batch.length - 1].id);
     if (!node) break;

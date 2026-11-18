@@ -6,8 +6,9 @@ import { resolveConnection, getConnections, connLabel, go, setCurrentStory, watc
 import { latestCheckpoint } from '../prompt.js';
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { fmtMoney } from '../cost.js';
+import { migrateCheckpoints, projectColumns, syncStructured } from '../structured-memory.js';
 
-export const DEFAULT_EVERY = 15;
+export const DEFAULT_EVERY = 1;
 
 function pathTo(nodes, nodeId) {
   const out = [];
@@ -30,6 +31,8 @@ export async function render(root, { id }) {
   const story = await db.get('stories', id);
   if (!story) { toast('找不到这个故事'); setCurrentStory(null); go(''); return; }
   const nodes = new Map((await db.byStory(id)).map((n) => [n.id, n]));
+  const migration = await migrateCheckpoints(nodes, db);
+  if (migration.failed) toast(`${migration.failed} 份旧档案暂未迁移，已保留原文；请检查设备存储空间`, 5000);
   const conns = await getConnections();
   let running = null;
   let destroyed = false;
@@ -56,6 +59,11 @@ export async function render(root, { id }) {
     every.value = String(story.memEvery ?? DEFAULT_EVERY);
     every.addEventListener('change', () => { story.memEvery = Math.max(0, Math.min(60, Number(every.value) || 0)); saveStory(); toast(story.memEvery ? `每 ${story.memEvery} 章自动整理一次` : '已关闭自动整理'); });
     const connSel = el('select', { onchange: () => { story.memConnId = connSel.value || null; saveStory(); } });
+    const mode = el('input', { type: 'checkbox' }); mode.checked = story.memoryMode === 'full';
+    mode.addEventListener('change', () => { story.memoryMode = mode.checked ? 'full' : 'layered'; saveStory(); toast(mode.checked ? '已切回整包档案' : '已启用分层记忆'); });
+    const recent = el('input', { type: 'number', min: '2', max: '4', step: '1', style: { width: '90px', flex: 'none' } });
+    recent.value = String(story.recentChapters || 2);
+    recent.addEventListener('change', () => { story.recentChapters = Math.max(2, Math.min(4, Number(recent.value) || 2)); recent.value = String(story.recentChapters); saveStory(); });
     connSel.append(el('option', { value: '' }, '跟随故事的连接'));
     conns.forEach((c) => connSel.append(el('option', { value: c.id }, `${connLabel(c)}（${c.model}）`)));
     connSel.value = story.memConnId || '';
@@ -86,6 +94,8 @@ export async function render(root, { id }) {
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '每几章自动整理一次', el('small', { text: '0 = 不自动，只手动整理。整理在后台进行，不耽误继续玩。' })), every),
       el('div', { class: 'field', style: { margin: '6px 0 10px' } }, el('label', { text: '整理用的连接' }), connSel,
         el('div', { class: 'hint', text: '可以换一个便宜点的模型来整理；但便宜模型更容易漏细节或编造，你在意准确的话建议用和正文一样的。' })),
+      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '使用旧整包档案模式', el('small', { text: '用于对比和排查。关闭时默认发送核心记忆、当前状态、最近章节和检索结果。' })), mode),
+      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '最近保留几章原文', el('small', { text: '分层模式保底发送 2～4 章。' })), recent),
       el('div', { class: 'row' }, runBtn, redoBtn), status));
     if (running) status.textContent = running.text + '（可以离开这页，整理会在后台继续）';
     else if (ext) status.textContent = ext.text + '（游玩页在后台整理，完成后这里会自动刷新）';
@@ -98,15 +108,16 @@ export async function render(root, { id }) {
     }
 
     const m = cp.mem;
+    const shown = projectColumns(m);
     const fields = {};
     const listArea = (key, label, hint = '') => {
       const ta = el('textarea', { style: { minHeight: '90px' } });
-      ta.value = (m[key] || []).join('\n');
+      ta.value = (shown[key] || m[key] || []).join('\n');
       fields[key] = ta;
       return el('div', { class: 'field' }, el('label', { text: label }), ta, hint ? el('div', { class: 'hint', text: hint }) : null);
     };
-    const early = el('textarea', { style: { minHeight: '120px' } }); early.value = m.early || '';
-    const sums = (m.summaries || []).map((x) => { const ta = el('textarea', { style: { minHeight: '110px' } }); ta.value = x.text; return { x, ta }; });
+    const early = el('textarea', { style: { minHeight: '120px' } }); early.value = shown.early || '';
+    const sums = (shown.summaries || []).map((x) => { const ta = el('textarea', { style: { minHeight: '110px' } }); ta.value = x.text; return { x, ta }; });
     const cardFields = Object.entries(m.cards || {}).map(([name, v]) => {
       const now = el('textarea', { style: { minHeight: '70px' } }); now.value = v.now || '';
       const arc = el('textarea', { style: { minHeight: '70px' } }); arc.value = v.arc || '';
@@ -116,7 +127,7 @@ export async function render(root, { id }) {
 
     const last = m.lastRun;
     wrap.append(el('div', { class: 'hint', style: { margin: '14px 2px 6px' } },
-      `下面是当前这条线上最新的一份档案（第 1–${m.upTo} 章）。每轮都会发给模型，改了直接生效。` +
+      `下面是当前这条线上最新的一份档案（第 1–${m.upTo} 章）。分层模式会按需取用，整包模式会发送全部；改了下一轮生效。` +
       (last ? ` 上次整理：第 ${last.from}–${last.to} 章${last.model ? '，用 ' + last.model : ''}${last.cost ? '，' + fmtMoney(last.cost) : ''}。` : '')));
 
     if ((m.unsure?.length || 0) + (m.conflicts?.length || 0) > 0) {
@@ -153,11 +164,13 @@ export async function render(root, { id }) {
         class: 'btn primary',
         onclick: async () => {
           if (running || archivingNow(story.id)) { toast('正在整理，等它完成再保存修改'); return; }
-          for (const [k, ta] of Object.entries(fields)) m[k] = lines(ta);
-          if (m.early?.trim() || m.earlyUpTo) m.early = early.value.trim();
+          const changed = { ...m };
+          for (const [k, ta] of Object.entries(fields)) changed[k] = lines(ta);
+          if (m.early?.trim() || m.earlyUpTo) changed.early = early.value.trim();
           sums.forEach(({ x, ta }) => { x.text = ta.value.trim(); });
-          m.summaries = (m.summaries || []).filter((x) => x.text);
+          changed.summaries = sums.map(({ x }) => x).filter((x) => x.text);
           for (const c of cardFields) m.cards[c.name] = { now: c.now.value.trim(), arc: c.arc.value.trim(), relation: c.rel.value.trim() };
+          syncStructured(m, changed, { from: m.upTo, to: m.upTo, branchId: cp.node.id });
           m.edited = Date.now();
           await db.put('nodes', cp.node);
           toast('档案已保存，下一轮生效');

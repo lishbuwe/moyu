@@ -6,6 +6,7 @@ import { INPUT_CONVENTION, PERSONAL_RULES } from './personal.js';
 import { protagonistState, PROTAGONIST_FIELDS } from './protagonist.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
+import { projectColumns, layeredMemory } from './structured-memory.js';
 
 export const DEFAULT_RULES = PERSONAL_RULES;
 
@@ -170,6 +171,7 @@ const bullet = (arr) => (arr || []).map((x) => String(x || '').trim()).filter(Bo
 
 export function memoryText(mem) {
   if (!mem) return '';
+  mem = { ...mem, ...projectColumns(mem) };
   const out = [`【前情档案：第 1–${mem.upTo} 章已整理；之后的剧情见对话原文。档案里的是已经发生的事实】`];
   if (mem.early?.trim()) out.push('〔早期概要〕\n' + mem.early.trim());
   if (mem.summaries?.length) out.push('〔各段摘要〕\n' + mem.summaries.map((x) => `第${x.from}–${x.to}章：${x.text.trim()}`).join('\n'));
@@ -198,6 +200,8 @@ export function inputBudgetChars(conn) {
 export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '' } = {}) {
   const { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
+  const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
+  const layered = compact ? layeredMemory(cp.mem, scanText(path, extra)) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
   add('开头', '你正在主持一场文字互动小说。', 'base');
@@ -206,17 +210,27 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   add('世界与角色设定', story.world?.trim() ? '【世界与角色设定】\n' + story.world.trim() : '', 'world');
   add('主角', protagonistText(story, path), 'card');
   for (const c of sentCards.filter((c) => c.core)) add(`角色卡 · ${c.name}（常驻）`, cardText(applyCardState(c, cp?.mem)), 'card');
-  if (cp) add(`前情档案 · 整理到第 ${cp.mem.upTo} 章`, memoryText(cp.mem), 'memory');
+  if (cp && !compact) add(`前情档案 · 整理到第 ${cp.mem.upTo} 章`, memoryText(cp.mem), 'memory');
+  if (layered?.core) add('永久核心记忆', `【永久核心：已发生的关键事实】\n${layered.core}`, 'memory');
+  if (layered) {
+    const current = [`当前已整理到第 ${cp.mem.upTo} 章`, ...Object.entries(cp.mem.cards || {}).map(([name, v]) => `${name}：${String(v.now || '').slice(0, 160)}`).slice(0, 5), layered.state].filter(Boolean).join('\n');
+    add('当前状态', `【当前状态和未决事项】\n${current}`, 'memory');
+  }
   // 只在稳定前缀末尾放缓存断点；本轮命中的模块和非核心角色不会使它失效。
   const cachePrefix = parts.map((p) => p.text).join('\n\n');
   for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
   for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, cardText(applyCardState(c, cp?.mem)), 'card');
+  if (layered?.recalled) add('历史记忆检索', `【根据本轮场景召回的较早事实】\n${layered.recalled}`, 'memory');
   add('玩家输入约定', INPUT_CONVENTION, 'rules');
   add('输出格式', '【输出格式】\n' + formatContract({ danmu: story.danmu !== false, options: story.options !== false }), 'format');
-  const system = parts.map((p) => p.text).join('\n\n');
+  let system = parts.map((p) => p.text).join('\n\n');
 
   // 有存档时：对话原文只从存档那一章开始（那一章本身留作衔接），更早的由前情档案代替
-  const recentPath = cp ? path.slice(cp.index) : path;
+  const chapterReplies = path.map((n, i) => n.role === 'assistant' && n.kind !== 'ooc' && n.text?.trim() ? i : -1).filter((i) => i >= 0);
+  const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
+  const startReply = chapterReplies[Math.max(0, chapterReplies.length - recentN)];
+  const recentStart = startReply == null ? 0 : (path[startReply - 1]?.role === 'user' ? startReply - 1 : startReply);
+  const recentPath = compact ? path.slice(recentStart) : cp ? path.slice(cp.index) : path;
   // 出戏对话：之后已经回到正戏的，就不再发给模型
   let lastPlayUser = -1;
   recentPath.forEach((n, i) => { if (n.role === 'user' && n.kind !== 'ooc') lastPlayUser = i; });
@@ -246,13 +260,25 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   // 超出预算时从最早的开始丢（至少保留最后 6 条）
   let trimmed = 0;
   const size = (ms) => ms.reduce((a, m) => a + m.content.length, 0);
-  while (messages.length > 6 && size(messages) + system.length > budgetChars) {
+  while (!compact && messages.length > 6 && size(messages) + system.length > budgetChars) {
     messages.shift();
     trimmed++;
   }
   // 第一条必须是用户消息（Claude 等接口的要求）；从存档处开始或被截断后，第一条可能是回复
   if (messages.length && messages[0].role === 'assistant') {
     messages.unshift({ role: 'user', content: cp ? '（更早的剧情见系统提示里的“前情档案”。下面从最近一章接着来。）' : '（更早的剧情因为太长没有发送。下面从这里接着来。）' });
+  }
+  if (compact && size(messages) + system.length > budgetChars) {
+    const recall = parts.find((p) => p.label === '历史记忆检索');
+    if (recall) {
+      const rows = layered.records.recalled.slice();
+      while (rows.length && size(messages) + system.length > budgetChars) {
+        rows.pop();
+        recall.text = rows.length ? `【根据本轮场景召回的较早事实】\n${rows.map((r) => `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`).join('\n')}` : '';
+        system = parts.filter((p) => p.text).map((p) => p.text).join('\n\n');
+      }
+      layered.hits = rows.map((r) => ({ id: r.id, from: r.sourceFrom, to: r.sourceTo }));
+    }
   }
   const historyChars = size(messages);
   return {
@@ -261,9 +287,10 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     messages,
     info: {
       systemChars: system.length, historyChars, totalChars: system.length + historyChars, budgetChars, trimmed, count: messages.length,
-      parts: parts.map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
+      parts: parts.filter((p) => p.text).map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
       tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
       memoryUpTo: cp ? cp.mem.upTo : 0,
+      memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreOmitted: layered?.coreOmitted || 0,
     },
   };
 }

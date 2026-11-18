@@ -6,6 +6,7 @@ import { resolveConnection, getConnections, connLabel, getPrefs, go, getModules,
 import { streamWithRetry, ApiError } from '../api.js';
 import { cancelRelayJob } from '../relay.js';
 import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, directorBlock, splitNames, latestCheckpoint } from '../prompt.js';
+import { migrateCheckpoints } from '../structured-memory.js';
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { archiveConn, DEFAULT_EVERY } from './memory.js';
 import { parseReply, paragraphs } from '../parse.js';
@@ -19,6 +20,8 @@ export async function render(root, { id }) {
   const story = await db.get('stories', id);
   if (!story) { toast('找不到这个故事'); setCurrentStory(null); go(''); return; }
   const nodes = new Map((await db.byStory(id)).map((n) => [n.id, n]));
+  const migration = await migrateCheckpoints(nodes, db);
+  if (migration.failed) toast(`${migration.failed} 份旧档案暂未迁移，已保留原文；请检查设备存储空间`, 5000);
 
   // 上次没写完就被打断的（切走应用、刷新页面），标成“中断”保留下来
   for (const n of nodes.values()) {
@@ -494,6 +497,7 @@ export async function render(root, { id }) {
     ctx.info.totalChars = ctx.system.length + ctx.info.historyChars;
     st.lastCtx = ctx;
     if (ctx.info.trimmed) toast(`剧情太长，最早的 ${ctx.info.trimmed} 条没有发给模型`);
+    if (ctx.info.coreOmitted) toast(`核心记忆有 ${ctx.info.coreOmitted} 条超出预算；可在记忆页整理或暂切整包模式`, 4500);
 
     const ctrl = new AbortController();
     st.streaming = { id: a.id, ctrl };
@@ -1089,7 +1093,9 @@ export async function render(root, { id }) {
     s.body.append(...[
       el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } },
         `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），输入预算 ${i.budgetChars.toLocaleString()} 字，${i.count} 条消息。` +
-        (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') + '较早轮次的弹幕和选项已去掉，只留正文。'),
+        (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') +
+        (i.coreOmitted ? `核心记忆有 ${i.coreOmitted} 条超过固定栏目预算；相关条目仍可被本轮检索召回。` : '') +
+        (i.memoryMode === 'layered' ? `分层模式，本轮召回 ${i.retrievalHits.length} 条历史记忆；最近 ${story.recentChapters || 2} 章原文保底。` : '整包档案模式。')),
       el('div', { class: 'card', style: { fontSize: '14px', lineHeight: 1.7 } },
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),
         el('div', {}, '在场（会提醒禁止清单）：', i.present?.length ? i.present.join('、') : '无'),

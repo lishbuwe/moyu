@@ -90,7 +90,9 @@ test('番外重写、切回旧版本后续写绑定各自素材与要求，重�
     await wait(()=>root.textContent.includes('旧版的结尾。'));
     button('接着当前版本写').click(); await wait(()=>!dispose.busy()&&requests.length===2);
     const sent=requests[1].body;
-    assert.equal(sent.messages[0].content,'旧版本专用设定');
+    assert.ok(sent.messages[0].content.includes('第 1 章之后'));
+    assert.ok(sent.messages.some(m=>m.content.includes('旧版的要求')));
+    assert.ok(!sent.messages[0].content.includes('旧版本专用设定'));
     assert.ok(sent.messages.some(m=>m.role==='assistant'&&m.content.includes('旧版的结尾。')));
     assert.equal(sent.max_tokens,2048);
     const saved=await db.get('extras','extra-qa');
