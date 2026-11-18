@@ -33,7 +33,7 @@ export async function render(root, { id }) {
   }
 
   const st = {
-    streaming: null, director: '', ooc: false, conn: await resolveConnection(story), lastCtx: null, pendingFrame: 0,
+    streaming: null, director: '', ooc: false, conn: await resolveConnection(story), lastCtx: null, lastCtxNodeId: null, pendingFrame: 0,
     pick: null,      // 正在“选一段往后重写”的回复 id
     undoHead: null,  // 回退前的位置，用来撤销
     modules: await getModules(),
@@ -501,7 +501,7 @@ export async function render(root, { id }) {
     }
     ctx.info.historyChars = ctx.messages.reduce((sum, m) => sum + m.content.length, 0);
     ctx.info.totalChars = ctx.system.length + ctx.info.historyChars;
-    st.lastCtx = ctx;
+    if (!resumeJob) { st.lastCtx = ctx; st.lastCtxNodeId = a.id; }
     if (ctx.info.trimmed) toast(`剧情太长，最早的 ${ctx.info.trimmed} 条没有发给模型`);
     if (ctx.info.coreOmitted) toast(`核心记忆有 ${ctx.info.coreOmitted} 条超出预算；可在记忆页整理或暂切整包模式`, 4500);
 
@@ -708,9 +708,11 @@ export async function render(root, { id }) {
       { key: 'fix', label: '这不像他（纠正人设）', hint: '写进角色卡的禁止清单，以后每轮都会提醒；可以顺手重写这一章' },
       isLast ? null : { key: 'back', label: '回到这里', hint: `从这一章重新往后玩${later > 0 ? `，后面的 ${later} 章放进分支` : ''}` },
       { key: 'copy', label: '复制正文' },
+      { key: 'pin', label: n.continuityPins?.length ? '管理保留的互动' : '保留这段互动', hint: '选段原文供后续正文接续参考' },
     ]);
     if (k === 'fix') correctChar(n);
     else if (k === 'edit') editReply(n);
+    else if (k === 'pin') pinInteraction(n);
     else if (k === 'cut') { st.pick = n.id; renderFeed({ focusId: n.id }); }
     else if (k === 'redo') {
       const note = await promptText({ title: '按要求重写这一章', placeholder: '例：他别这么快服软；多写一点环境；对话再短一些', hint: '只对这次重写生效。', okText: '重写' });
@@ -733,6 +735,43 @@ export async function render(root, { id }) {
 
   function copyText(t) {
     navigator.clipboard?.writeText(t || '').then(() => toast('已复制'), () => toast('复制失败'));
+  }
+
+  function pinInteraction(n) {
+    const body = parseReply(n.text).body;
+    const separator = /\n\s*\n/.test(body) ? /\n\s*\n/ : /\n/;
+    const candidates = body.split(separator).map((part) => part.trim()).filter((part) => part.length >= 6);
+    const existing = Array.isArray(n.continuityPins) ? n.continuityPins : [];
+    const s = sheet({ title: '保留这段互动' });
+    s.body.append(el('div', { class: 'hint', text: '选最多三段。它们会在本分支的正文里优先作为较早互动参考，受输入预算限制。' }));
+    const choices = [...new Set([...existing.filter((quote) => body.includes(quote)), ...candidates.map((part) => Array.from(part).slice(0, 360).join(''))])]
+      .map((quote) => {
+        const input = el('input', { type: 'checkbox' });
+        input.checked = existing.includes(quote);
+        s.body.append(el('label', { class: 'card row', style: { alignItems: 'flex-start', flexWrap: 'nowrap' } },
+          input, el('span', { style: { minWidth: 0, overflowWrap: 'anywhere' }, text: quote })));
+        return { input, quote };
+      });
+    s.foot.append(el('button', { class: 'btn ghost', onclick: s.close }, '取消'),
+      el('button', { class: 'btn primary', onclick: async (e) => {
+        const selected = choices.filter(({ input }) => input.checked).map(({ quote }) => quote);
+        if (selected.length > 3) { toast('最多保留三段'); return; }
+        if (st.streaming?.id === n.id) { toast('等这一章写完再保存'); return; }
+        const save = e.currentTarget;
+        save.disabled = true;
+        try {
+          const current = nodes.get(n.id);
+          if (!current || current.text !== n.text) { toast('章节已变化，请重新选段'); return; }
+          const before = current.continuityPins;
+          current.continuityPins = selected;
+          try { await db.put('nodes', current); }
+          catch (error) { current.continuityPins = before; throw error; }
+          s.close();
+          renderFeed({ keepScroll: true });
+          toast(selected.length ? '已保留互动' : '已取消保留');
+        } catch { toast('保存失败'); }
+        finally { save.disabled = false; }
+      } }, '保存'));
   }
 
   function editReply(n) {
@@ -1100,8 +1139,9 @@ export async function render(root, { id }) {
   }
 
   function showContext() {
-    const ctx = st.lastCtx || buildContext(story, headPath(), { budgetChars: inputBudgetChars(st.conn), modules: st.modules, globalMemo: st.globalMemo });
-    const s = sheet({ title: st.lastCtx ? (headPath().at(-1)?.error?.kind === 'input_budget' ? '上轮未发送的内容' : '上一轮发给模型的内容') : '下一轮会发给模型的内容' });
+    const lastCtx = st.lastCtxNodeId === story.headId ? st.lastCtx : null;
+    const ctx = lastCtx || buildContext(story, headPath(), { budgetChars: inputBudgetChars(st.conn), modules: st.modules, globalMemo: st.globalMemo });
+    const s = sheet({ title: lastCtx ? (headPath().at(-1)?.error?.kind === 'input_budget' ? '上轮未发送的内容' : '上一轮发给模型的内容') : '按当前分支预览上下文' });
     const i = ctx.info;
     const block = (label, text, open = false) => {
       const d = el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer', fontSize: '14px' }, text: label }), el('pre', { class: 'raw', text }));
@@ -1113,7 +1153,12 @@ export async function render(root, { id }) {
         `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），输入预算 ${i.budgetChars.toLocaleString()} 字，${i.count} 条消息。` +
         (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') +
         (i.coreOmitted ? `核心记忆有 ${i.coreOmitted} 条超过固定栏目预算；相关条目仍可被本轮检索召回。` : '') +
-        (i.memoryMode === 'layered' ? `分层模式，本轮召回 ${i.retrievalHits.length} 条历史记忆；最近 ${story.recentChapters || 2} 章原文保底。` : '整包档案模式。')),
+        (i.continuity ? `按场景接续，召回 ${i.retrievalHits.length} 条历史记忆。` : i.memoryMode === 'layered' ? '分层记忆模式。' : '整包档案模式。')),
+      i.continuity ? el('div', { class: 'card', style: { fontSize: '14px', lineHeight: '1.6' } },
+        el('div', { text: '原文章节：' + (i.continuity.kept.join('、') || '无') }),
+        i.continuity.excerpts.length ? el('div', { text: '额外引用：第 ' + i.continuity.excerpts.join('、') + ' 章' }) : null,
+        i.continuity.sceneOmitted.length ? el('div', { text: '当前场景中未带整章原文：' + i.continuity.sceneOmitted.join('、') }) : null,
+        i.continuity.omitted.length ? el('div', { text: '未带整章原文的待整理章节：' + i.continuity.omitted.join('、') }) : null) : null,
       el('div', { class: 'card', style: { fontSize: '14px', lineHeight: 1.7 } },
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),
         el('div', {}, '在场（会提醒禁止清单）：', i.present?.length ? i.present.join('、') : '无'),

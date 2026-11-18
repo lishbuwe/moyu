@@ -7,6 +7,7 @@ import { protagonistState, PROTAGONIST_FIELDS } from './protagonist.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
 import { projectColumns, layeredMemory } from './structured-memory.js';
+import { continuityPlan } from './continuity.js';
 
 export const DEFAULT_RULES = PERSONAL_RULES;
 
@@ -88,7 +89,7 @@ export function protagonistText(story, path = []) {
     ...Object.entries(protagonistState(p, path)).map(([key, entry]) => `当前·${PROTAGONIST_FIELDS[key]}：${entry.value}`),
   ].filter(Boolean);
   if (!lines.length) return '';
-  return '【主角（玩家扮演的“你”）】\n' + lines.join('\n') + '\n写到主角时，性别、称呼都按这里来，第三人称视角也一样。';
+  return '【主角（玩家扮演的“你”）】\n' + lines.join('\n') + '\n叙述中的姓名和人称按这里来；角色在对白中的称呼，随双方已发生的互动和当前场合自然变化。';
 }
 
 export function cardText(c) {
@@ -201,6 +202,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
+  const continuity = story.memoryMode !== 'full' && (compact || !cp) ? continuityPlan(story, path, cp, splitNames) : null;
   const layered = compact ? layeredMemory(cp.mem, scanText(path, extra)) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
@@ -220,17 +222,16 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const cachePrefix = parts.map((p) => p.text).join('\n\n');
   for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
   for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, cardText(applyCardState(c, cp?.mem)), 'card');
-  if (layered?.recalled) add('历史记忆检索', `【根据本轮场景召回的较早事实】\n${layered.recalled}`, 'memory');
   add('玩家输入约定', INPUT_CONVENTION, 'rules');
   add('输出格式', '【输出格式】\n' + formatContract({ danmu: story.danmu !== false, options: story.options !== false }), 'format');
   let system = parts.map((p) => p.text).join('\n\n');
 
-  // 有存档时：对话原文只从存档那一章开始（那一章本身留作衔接），更早的由前情档案代替
+  if (continuity) add('互动连续性', '【互动连续性】\n初始设定是故事的起点。判断人物现在的态度、距离和措辞时，以本分支中已经发生的互动为依据。较早片段只是前因；可以延续、暂时搁下或在合适时回应。保留仍未挑明的地方，不替人物定性。', 'rules');
   const chapterReplies = path.map((n, i) => n.role === 'assistant' && n.kind !== 'ooc' && n.text?.trim() ? i : -1).filter((i) => i >= 0);
   const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
   const startReply = chapterReplies[Math.max(0, chapterReplies.length - recentN)];
   const recentStart = startReply == null ? 0 : (path[startReply - 1]?.role === 'user' ? startReply - 1 : startReply);
-  const recentPath = compact ? path.slice(recentStart) : cp ? path.slice(cp.index) : path;
+  const recentPath = continuity ? path.slice(recentStart) : cp ? path.slice(cp.index) : path;
   // 出戏对话：之后已经回到正戏的，就不再发给模型
   let lastPlayUser = -1;
   recentPath.forEach((n, i) => { if (n.role === 'user' && n.kind !== 'ooc') lastPlayUser = i; });
@@ -240,28 +241,94 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const playReplies = kept.filter((n) => n.role === 'assistant' && n.kind !== 'ooc');
   const rawSet = new Set(playReplies.slice(-keepRawLast).map((n) => n.id));
 
-  const lastUserIdx = kept.map((n) => n.role).lastIndexOf('user');
-  let messages = [];
   const tail = tailReminder(present);
   const fmtTail = formatTail(story);
-  kept.forEach((n, i) => {
+  const lastUser = kept.findLast((n) => n.role === 'user');
+  function message(n, raw = false) {
     if (n.role === 'user') {
-      const isLastUser = i === lastUserIdx;
-      let c = userContent(n, { withDirector: isLastUser });
-      if (isLastUser && tail && n.kind !== 'ooc') c += tail;
-      if (isLastUser && fmtTail && n.kind !== 'ooc') c += fmtTail;
-      messages.push({ role: 'user', content: c });
-    } else if (n.text && n.text.trim()) {
-      const content = n.kind === 'ooc' || rawSet.has(n.id) ? stripReasoning(n.text).trim() : forContext(n.text);
-      if(content)messages.push({ role: 'assistant', content });
+      let content = userContent(n, { withDirector: n === lastUser });
+      if (n === lastUser && n.kind !== 'ooc') content += tail + fmtTail;
+      return { role: 'user', content };
     }
-  });
+    const content = raw || n.kind === 'ooc' ? stripReasoning(n.text || '').trim() : forContext(n.text || '');
+    return { role: 'assistant', content };
+  }
+  let messages = kept.map((n) => message(n, rawSet.has(n.id))).filter((m) => m.role === 'user' || m.content);
 
-  // 超出预算时从最早的开始丢（至少保留最后 6 条）
   let trimmed = 0;
   const size = (ms) => ms.reduce((a, m) => a + m.content.length, 0);
   const continuationChars = size(continuationMessages);
-  while (!compact && messages.length > 6 && size(messages) + system.length + continuationChars > budgetChars) {
+  let continuityInfo;
+  if (continuity) {
+    if (size(messages) + system.length + continuationChars > budgetChars) {
+      messages = kept.map((n) => message(n)).filter((m) => m.role === 'user' || m.content);
+    }
+    const selected = new Map();
+    const baseline = continuity.chapters.filter((c) => c.index >= recentStart);
+    for (const chapter of baseline) selected.set(chapter.id, null);
+    let remaining = budgetChars - system.length - size(messages) - continuationChars;
+    const sceneIds = new Set(continuity.scene.map((c) => c.id));
+    const outside = continuity.excerpts.filter(({ chapter }) => !sceneIds.has(chapter.id) && !selected.has(chapter.id));
+    const quoteReserve = Math.min(1600, Math.floor(Math.max(0, remaining) / 3),
+      outside.reduce((sum, { quote, detail }) => sum + quote.length + (detail?.length || 0) + 46, 0));
+    // 额外原文以整章的玩家行动和 GM 回应为单位，不把较早段落混进最新行动。
+    function take(chapter, reserve = 0) {
+      const rows = [chapter.user && message(chapter.user), message(chapter.node)].filter(Boolean);
+      const chars = size(rows);
+      if (chars > remaining - reserve) return false;
+      remaining -= chars;
+      selected.set(chapter.id, rows);
+      return true;
+    }
+    for (const chapter of continuity.scene.slice().reverse()) {
+      if (!selected.has(chapter.id) && !take(chapter, quoteReserve)) break;
+    }
+    const quotes = [];
+    const quoteTitle = '【较早互动原文·供接续参考】';
+    let quoteRoom = Math.min(3200, remaining);
+    const seen = new Set();
+    for (const { chapter, quote, detail, pinned } of continuity.excerpts) {
+      const key = chapter.id + '\n' + quote;
+      if (selected.has(chapter.id) || seen.has(key)) continue;
+      const text = `〔第${chapter.no}章${pinned ? ' · 玩家保留' : ''}〕\n${detail ? detail + '\n' : ''}${quote}`;
+      const chars = text.length + 2 + (quotes.length ? 0 : quoteTitle.length + 1);
+      if (chars > quoteRoom) continue;
+      quoteRoom -= chars; remaining -= chars;
+      quotes.push({ chapter: chapter.no, text }); seen.add(key);
+    }
+    const pendingTitle = '【其他尚未整理的较早剧情原文】';
+    const pendingBlocks = [];
+    for (const chapter of continuity.pendingRanked) {
+      if (selected.has(chapter.id) || quotes.some((quote) => quote.chapter === chapter.no)) continue;
+      const text = [`〔第${chapter.no}章〕`, chapter.user ? '玩家：' + userContent(chapter.user) : '', message(chapter.node).content].filter(Boolean).join('\n');
+      const chars = text.length + 2 + (pendingBlocks.length ? 0 : pendingTitle.length + 1);
+      if (chars > remaining) continue;
+      remaining -= chars;
+      pendingBlocks.push({ no: chapter.no, text });
+      selected.set(chapter.id, null);
+    }
+    const earlier = continuity.chapters.flatMap((c) => selected.get(c.id) || []);
+    messages = [...earlier, ...messages];
+    if (quotes.length) add('较早互动原文', quoteTitle + '\n' + quotes.sort((a, b) => a.chapter - b.chapter).map((x) => x.text).join('\n\n'), 'continuity');
+    if (pendingBlocks.length) add('尚未整理的较早剧情', pendingTitle + '\n' + pendingBlocks.sort((a, b) => a.no - b.no).map((block) => block.text).join('\n\n'), 'continuity');
+    const recallTitle = '【根据本轮场景召回的较早事实】';
+    const recalled = [];
+    let recallRoom = remaining - recallTitle.length - 1;
+    for (const r of layered?.records.recalled || []) {
+      const line = `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`;
+      if (line.length + 1 > recallRoom) continue;
+      recallRoom -= line.length + 1;
+      recalled.push({ r, line });
+    }
+    if (recalled.length) add('历史记忆检索', recallTitle + '\n' + recalled.map((x) => x.line).join('\n'), 'memory');
+    if (layered) layered.hits = recalled.map(({ r }) => ({ id: r.id, from: r.sourceFrom, to: r.sourceTo }));
+    system = parts.map((p) => p.text).join('\n\n');
+    const keptChapters = continuity.chapters.filter((c) => selected.has(c.id)).map((c) => c.no);
+    const omitted = continuity.pending.filter((c) => !selected.has(c.id)).map((c) => c.no);
+    const sceneOmitted = continuity.scene.filter((c) => !selected.has(c.id)).map((c) => c.no);
+    continuityInfo = { kept: keptChapters, excerpts: [...new Set(quotes.map((x) => x.chapter))], omitted, sceneOmitted };
+  }
+  while (!continuity && !compact && messages.length > 6 && size(messages) + system.length + continuationChars > budgetChars) {
     messages.shift();
     trimmed++;
   }
@@ -270,18 +337,6 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     messages.unshift({ role: 'user', content: cp ? '（更早的剧情见系统提示里的“前情档案”。下面从最近一章接着来。）' : '（更早的剧情因为太长没有发送。下面从这里接着来。）' });
   }
   messages.push(...continuationMessages);
-  if (compact && size(messages) + system.length > budgetChars) {
-    const recall = parts.find((p) => p.label === '历史记忆检索');
-    if (recall) {
-      const rows = layered.records.recalled.slice();
-      while (rows.length && size(messages) + system.length > budgetChars) {
-        rows.pop();
-        recall.text = rows.length ? `【根据本轮场景召回的较早事实】\n${rows.map((r) => `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`).join('\n')}` : '';
-        system = parts.filter((p) => p.text).map((p) => p.text).join('\n\n');
-      }
-      layered.hits = rows.map((r) => ({ id: r.id, from: r.sourceFrom, to: r.sourceTo }));
-    }
-  }
   const historyChars = size(messages);
   return {
     system,
@@ -292,7 +347,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       parts: parts.filter((p) => p.text).map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
       tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
       memoryUpTo: cp ? cp.mem.upTo : 0,
-      memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreOmitted: layered?.coreOmitted || 0,
+      memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreOmitted: layered?.coreOmitted || 0, continuity: continuityInfo,
     },
   };
 }

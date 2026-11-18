@@ -27,6 +27,7 @@ const extras = await import('../js/views/extras.js');
 const settings = await import('../js/views/settings.js');
 const discussion = await import('../js/views/discuss.js');
 const chars = await import('../js/views/chars.js');
+const { runArchivist } = await import('../js/memory.js');
 const storyView = await import('../js/views/story.js');
 let requests = [], responses = [], root;
 const options = '\n\n【选项】\nA. 查看地图\nB. 收好信件\nC. 询问路人\nD. 留在原地';
@@ -143,6 +144,52 @@ test('已完成章也可续写，旧选项留在原版，新增正文正常显�
     assert.equal((await db.get('nodes', story.headId)).text, nodes[1].text);
     assert.ok(!requests[0].body.messages.at(-2).content.includes('查看地图'));
     assert.equal(root.querySelector('.gm p:last-of-type').textContent, '他在新办公室坐下。');
+  } finally { dispose(); }
+});
+
+test('整理保存可核对的互动，手选原文能保留和取消，下一场收到原句', async () => {
+  const {story, nodes} = await seedStory();
+  const quote = '林舟已经毕业，入职设计公司。';
+  const picked = '他把想说的话又咽了回去。';
+  story.cards = [{name: '林舟'}];
+  story.protagonist = {name: '顾律'};
+  await db.put('stories', story);
+  nodes[1].text = '# 毕业之后\n\n' + quote + '\n\n' + picked + options;
+  await db.put('nodes', nodes[1]);
+  responses.push(JSON.stringify({
+    summary: '他开始工作，却留下了一句没说完的话。',
+    openLines: [{chapter: 1, people: ['林舟', '顾律'], detail: '这句话还没说完。', quote: picked}],
+  }));
+  await runArchivist(story, new Map(nodes.map((n) => [n.id, n])), nodes, await db.get('connections', 'qa-conn'));
+  const original = await db.get('nodes', 'a1');
+  assert.equal(original.checkpoint.continuity.lines[0].refs[0].quote, picked);
+  const dispose = await play.render(root, {id: story.id});
+  try {
+    root.querySelector('.chapter-row button.more').click();
+    [...document.querySelectorAll('.menu-list button')].find(b => b.textContent.startsWith('保留这段互动')).click();
+    await wait(() => button('保存'));
+    const boxes = [...document.querySelectorAll('[role="dialog"] input[type="checkbox"]')];
+    boxes[0].checked = true;
+    button('保存').click();
+    await wait(() => !button('保存'));
+    const pinned = await db.get('nodes', 'a1');
+    assert.deepEqual(pinned.continuityPins, [quote]);
+    assert.deepEqual(pinned.checkpoint, original.checkpoint);
+    const path = [nodes[0], pinned,
+      {id: 'u2', role: 'user', kind: 'play', text: '次日，我去见林舟。'},
+      {id: 'a2', role: 'assistant', kind: 'play', text: '我们在长椅旁停下。'},
+      {id: 'u3', role: 'user', kind: 'play', text: '我看他一眼。'},
+      {id: 'a3', role: 'assistant', kind: 'play', text: '他把伞收了起来。'},
+    ];
+    const context = buildContext(story, path, {budgetChars: 6000});
+    assert.ok(context.system.includes('玩家保留') && context.system.includes(quote) && context.system.includes(picked));
+    root.querySelector('.chapter-row button.more').click();
+    [...document.querySelectorAll('.menu-list button')].find(b => b.textContent.startsWith('管理保留的互动')).click();
+    await wait(() => button('保存'));
+    document.querySelector('[role="dialog"] input[type="checkbox"]').checked = false;
+    button('保存').click();
+    await wait(() => !button('保存'));
+    assert.deepEqual((await db.get('nodes', 'a1')).continuityPins, []);
   } finally { dispose(); }
 });
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { emptyMemory } from '../js/memory.js';
 import { memoryText } from '../js/prompt.js';
 import { buildContext } from '../js/prompt.js';
+import { updateContinuity } from '../js/continuity.js';
 import { ensureStructured, projectColumns, syncStructured, addEvents, activeRecords, migrateCheckpoints } from '../js/structured-memory.js';
 
 test('旧档案原文、栏目和章段范围无损迁移，重复打开不改动', () => {
@@ -58,7 +59,7 @@ test('设备空间不足时迁移失败保留原节点，仍可用旧档案', as
   assert.ok(memoryText(node.checkpoint).includes('原文保留'));
 });
 
-test('百章档案只带两章原文，提到旧停电与本子时能召回并减少输入', () => {
+test('百章档案按预算保留未整理原文，提到停电与本子时仍能召回旧记忆', () => {
   const mem = { ...emptyMemory(), upTo: 90,
     summaries: Array.from({ length: 90 }, (_, i) => ({ from: i + 1, to: i + 1, text: `第${i + 1}章发生的普通小事。` + '情景'.repeat(70) })),
     irreversible: ['顾律留下B5速写本'], threads: ['大二那次停电的原因还没解开'] };
@@ -66,14 +67,53 @@ test('百章档案只带两章原文，提到旧停电与本子时能召回并�
   const path = [];
   for (let i = 1; i <= 100; i++) {
     path.push({ id: 'u' + i, role: 'user', kind: 'play', text: i === 100 ? '那个本子是不是跟大二那次停电有关？' : `第${i}次行动` });
-    path.push({ id: 'a' + i, role: 'assistant', kind: 'play', text: `# 第${i}章\n` + '本章剧情。'.repeat(200), ...(i === 90 ? { checkpoint: mem } : {}) });
+    path.push({ id: 'a' + i, role: 'assistant', kind: 'play', text: `# 第${i}章\n` + (i === 95 ? '第二天，' : '') + '本章剧情。'.repeat(200), ...(i === 90 ? { checkpoint: mem } : {}) });
   }
   const story = { rules: '规则', world: '世界设定', cards: [], options: false, danmu: false };
-  const old = buildContext({ ...story, memoryMode: 'full' }, path, { budgetChars: 60000 });
-  const compact = buildContext(story, path, { budgetChars: 60000 });
+  const compact = buildContext(story, path, { budgetChars: 15000 });
   assert.equal(compact.info.memoryMode, 'layered');
-  assert.ok(compact.info.totalChars < old.info.totalChars / 2);
+  assert.ok(compact.info.totalChars <= 15000);
   assert.ok(compact.system.includes('停电') && compact.system.includes('速写本'));
-  assert.equal(compact.messages.filter(m => m.role === 'assistant').length, 2);
+  assert.deepEqual(compact.info.continuity.kept, [91,92,93,94,95,96,97,98,99,100]);
+  assert.equal(compact.messages.filter(m => m.role === 'assistant').length, 6);
   assert.ok(compact.info.retrievalHits.length > 0);
+});
+
+test('跨十二章接回试探原句，沿用当前场景，回退和改写后不引用错误版本', () => {
+  const line = '商衍说：“那天我其实……”他把后半句咽了回去。';
+  const reply = '顾律收了伞，没有追问。';
+  const path = [];
+  const batch = [];
+  for (let no = 1; no <= 14; no++) {
+    path.push({ id: 'u' + no, role: 'user', kind: 'play', text: no === 12 ? '次日，我去见商衍。' : '我等了一会儿。' });
+    const body = no === 2 ? line + '\n\n' + reply : no < 12 ? '第二天，别的场景。' : '他们沿河慢慢走了几步。';
+    path.push({ id: 'a' + no, role: 'assistant', kind: 'play', text: '# 标题\n\n' + body });
+    batch.push({ id: 'a' + no, no });
+  }
+  const nodes = new Map(path.map((node) => [node.id, node]));
+  const mem = { ...emptyMemory(), upTo: 11 };
+  ensureStructured(mem, 'a11');
+  mem.continuity = updateContinuity(null, { openLines: [
+    { chapter: 2, quote: line + '\n\n' + reply, people: ['商衍','顾律'], detail: '他起了话头，她还没问。' },
+    { chapter: 3, quote: '模型补写的原句不在正文。', people: ['商衍'], detail: '不应保存' },
+  ] }, batch.slice(0, 11), nodes);
+  assert.equal(mem.continuity.lines.length, 1);
+  nodes.get('a11').checkpoint = mem;
+  const story = { protagonist: { name: '顾律' }, cards: [{ name: '商衍', core: true }], danmu: false, options: false };
+  const next = { id: 'u15', role: 'user', kind: 'play', text: '我侧过头看他。' };
+  const result = buildContext(story, [...path, next], { budgetChars: 6000 });
+  assert.ok(result.system.includes(line));
+  assert.ok(result.system.includes(reply));
+  assert.deepEqual(result.info.continuity.kept, [12,13,14]);
+  assert.deepEqual(result.info.continuity.excerpts, [2]);
+  assert.equal(result.messages.at(-1).content, next.text);
+  assert.ok(result.info.totalChars <= 6000);
+  assert.ok(!buildContext(story, path.slice(0, 2)).system.includes(line));
+  assert.ok(!buildContext(story, [...path.map(n => n.id === 'a2' ? { ...n, text: '改写后的章节。' } : n), next]).system.includes(line));
+  const moved = { ...next, text: '次日，我回到自己的办公室。' };
+  assert.ok(!buildContext(story, [...path, moved]).system.includes(line));
+  const closed = updateContinuity(mem.continuity, {
+    closeLines: [{ id: mem.continuity.lines[0].id, chapter: 14, quote: '他们沿河慢慢走了几步。' }],
+  }, batch.slice(-1), nodes);
+  assert.deepEqual(closed.lines, []);
 });

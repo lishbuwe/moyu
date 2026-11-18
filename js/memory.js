@@ -7,6 +7,7 @@ import { latestCheckpoint, memoryText, applyCardState, splitNames, protagonistTe
 import { chaptersOf } from './fanwai.js';
 import { normalizeUsage, computeCost, recordUsage } from './cost.js';
 import { ensureStructured, syncStructured, addEvents } from './structured-memory.js';
+import { continuityArchivePrompt, updateContinuity } from './continuity.js';
 
 export const BATCH = 10;          // 多章积压时恢复原有批量整理；逐章模式仍一次整理一章
 const SUMMARY_LIMIT = 8000;       // 各段摘要超过这么多字，就把最早的一半压缩成“早期概要”
@@ -93,6 +94,7 @@ function archivistPrompt(story, prev, batch) {
       '【已有的前情档案】\n' + prevText,
       prev.records?.length ? '【近期可覆盖的结构化记忆 ID】\n' + prev.records.filter((x) => x.invalidatedAt == null).slice(-80)
         .map((x) => `${x.id}｜第${x.sourceFrom}${x.sourceTo !== x.sourceFrom ? '–' + x.sourceTo : ''}章｜${x.event.slice(0, 130)}`).join('\n') : '',
+      story.memoryMode !== 'full' ? continuityArchivePrompt(prev.continuity) : '',
       `【新的剧情：第${from}–${to}章】\n` + batch.map(chapterBlock).join('\n\n'),
       '【请输出这个 JSON】\n' + JSON.stringify({
         summary: `第${from}–${to}章的剧情摘要，300到600字。按时间顺序写具体发生了什么：谁做了什么、说了哪句关键的话、局面怎么变了。不写评价`,
@@ -119,6 +121,12 @@ function archivistPrompt(story, prev, batch) {
         cards: { 角色名: { now: '现在走到哪一步、对主角的立场、彼此怎么称呼（整段重写成最新的）', arcAdd: '这一段里让他发生变化的节点：第几章、发生了什么、哪里变了哪里没变；没有就空字符串', relation: '和主角的关系档案：相处梗、称呼史、生效的约定、亲密档案。在旧的基础上合并更新，不要丢掉旧内容' } },
         conflicts: ['新剧情和已有设定或档案矛盾的地方（不要自己改，列出来给玩家裁决）'],
         unsure: ['拿不准的地方'],
+        ...(story.memoryMode !== 'full' ? {
+          sceneStarts: [{ chapter: from, quote: '换场所在章的连续正文原句，只标确实换场的章；否则空数组' }],
+          openLines: [{ id: '更新已有互动时填旧 id；新增留空', chapter: from, people: ['直接参与者'],
+            detail: '发生了什么、谁怎么回应、什么还没定', quote: '本批剧情中体现动作和回应的连续正文原句，6–720 字' }],
+          closeLines: [{ id: '已经解决的旧互动 id', chapter: from, quote: '本批剧情中能证明此事已经说开或解决的连续正文原句' }],
+        } : {}),
       }, null, 1),
       'cards 里只写这一段出场或有变化、而且已经有角色卡的角色，键用角色卡上的名字；还没有卡的重要新角色写进 newCharacters。memories 每条以本章为来源，能确认知情者才填写；旧事实被新事实取代时，在 replaces 里写旧条目的 ID，不能确认就不覆盖。',
     ].filter(Boolean).join('\n\n'),
@@ -277,6 +285,7 @@ async function runInner(story, nodes, path, conn, { signal, onProgress = () => {
     delete j.__repaired;
     newCards.push(...(await addNewCharacters(story, j, from, to)).map((c) => c.name));
     let m = merge(prev, j, from, to, story);
+    if (story.memoryMode !== 'full') m.continuity = updateContinuity(prev.continuity, j, batch, nodes);
     m = await compressIfLong(m, conn, signal, track);
     syncStructured(m, m, { from, to, branchId: batch[batch.length - 1].id, metadata: j.memories });
     addEvents(m, j.memories, from, to, batch[batch.length - 1].id);
