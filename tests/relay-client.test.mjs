@@ -98,6 +98,19 @@ test('任务创建响应损坏时也不自动重复创建', async (t) => {
   assert.equal(requests, 1);
 });
 
+test('上游 429 保留原始错误且只创建一笔转发任务', async (t) => {
+  let created = 0; let retries = 0;
+  setup(t, async (url) => {
+    if (url.endsWith('/jobs')) { created++; return response('{"id":"limited-job"}', 201); }
+    if (url.includes('/stream?from=0')) return streamResponse('{"error":{"message":"rate limit exceeded"}}', 429);
+    return response('{"state":"done"}');
+  });
+  await assert.rejects(streamWithRetry(conn, { messages: [] }, { onRetry: () => retries++ }),
+    (e) => e.kind === 'ratelimit' && e.status === 429 && e.detail.includes('rate limit exceeded'));
+  assert.equal(created, 1);
+  assert.equal(retries, 0);
+});
+
 test('转发设置只接受 HTTPS，不把旧任务接到另一台服务器', async (t) => {
   setup(t, async () => { throw new Error('should not fetch'); });
   for (const url of ['http://relay.example', 'https://user:pass@relay.example', 'https://relay.example?token=secret']) assert.throws(() => relayUrl(url));

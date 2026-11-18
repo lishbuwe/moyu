@@ -93,7 +93,7 @@ export async function render(root, { id }) {
     wrap.append(el('div', { class: 'card' },
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '每几章自动整理一次', el('small', { text: '0 = 不自动，只手动整理。整理在后台进行，不耽误继续玩。' })), every),
       el('div', { class: 'field', style: { margin: '6px 0 10px' } }, el('label', { text: '整理用的连接' }), connSel,
-        el('div', { class: 'hint', text: '可以换一个便宜点的模型来整理；但便宜模型更容易漏细节或编造，你在意准确的话建议用和正文一样的。' })),
+        el('div', { class: 'hint', text: '留空就跟正文共用连接。每章自动整理会在正文结束后再发一次模型请求；如果常遇到 429，可以在这里单独选一条有额度的连接。便宜模型可能漏细节，请在整理后检查档案。' })),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '使用旧整包档案模式', el('small', { text: '用于对比和排查。关闭时默认发送核心记忆、当前状态、最近章节和检索结果。' })), mode),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '最近保留几章原文', el('small', { text: '分层模式保底发送 2～4 章。' })), recent),
       el('div', { class: 'row' }, runBtn, redoBtn), status));

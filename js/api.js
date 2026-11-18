@@ -174,7 +174,7 @@ function httpError(status, raw, url) {
   }
   if (status === 405) return new ApiError('notfound', '地址不对（这个地址不接受这种请求）', { ...o, hint: '可能选错了接口格式，试试“自动识别”。' });
   if (status === 413) return new ApiError('toolong', '内容太长，接口拒收', { ...o, hint: '故事太长了，超出了接口能接收的大小。' });
-  if (status === 429) return new ApiError('ratelimit', '请求太频繁', { ...o, hint: '等几秒再试。如果一直这样，可能是额度用完了，去后台看看。' });
+  if (status === 429) return new ApiError('ratelimit', '模型接口返回 429（请求太频繁）', { ...o, hint: '请查看模型提供方或中转站的调用频率与额度。如果记忆整理跟随正文连接、又设为每章自动整理，可以在「记忆」里为整理单独选一条连接。' });
   if (status === 529) return new ApiError('overloaded', '模型服务繁忙', { ...o, hint: '官方服务器忙，过一会儿再试。' });
   if (status >= 500) {
     const hint = status === 502 || status === 503 || status === 504
@@ -448,12 +448,16 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
   };
 }
 
-/** 自动重试：只对“还没收到任何正文”的网络/限流/服务端错误重试一次 */
+/** 一般失败仅在未创建转发任务且未收到输出时自动重试；明确拒绝的兼容参数仍可降级重发。 */
 export async function streamWithRetry(conn, opts, { retries = 1, onRetry = () => {}, onConnPatch = () => {} } = {}) {
   let attempt = 0;
+  let relayJobCreated = !!opts.resumeJob;
   for (;;) {
     try {
-      return await streamChat(conn, opts);
+      return await streamChat(conn, { ...opts, onJob: async (...args) => {
+        relayJobCreated = true;
+        await opts.onJob?.(...args);
+      } });
     } catch (e) {
       if (e instanceof ApiError && e.kind === 'no_stream_options' && conn.usageOpt !== false) {
         conn = { ...conn, usageOpt: false };
@@ -471,7 +475,7 @@ export async function streamWithRetry(conn, opts, { retries = 1, onRetry = () =>
         continue;
       }
       const retriable = e instanceof ApiError && ['network', 'ratelimit', 'server', 'overloaded'].includes(e.kind) && !e.partial && !e.receivedOutput;
-      if (!retriable || attempt >= retries || opts.signal?.aborted) throw e;
+      if (!retriable || relayJobCreated || attempt >= retries || opts.signal?.aborted) throw e;
       attempt++;
       onRetry(e, attempt);
       await new Promise((r) => setTimeout(r, e.kind === 'ratelimit' ? 4000 : 2000));
