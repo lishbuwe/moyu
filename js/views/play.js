@@ -5,7 +5,7 @@ import { el, uid, toast, menu, promptText, sheet, saveFile, autoGrow, insertAtCu
 import { resolveConnection, getConnections, connLabel, getPrefs, go, getModules, setCurrentStory, getGlobalMemo, watchStory } from '../state.js';
 import { streamWithRetry, ApiError } from '../api.js';
 import { cancelRelayJob } from '../relay.js';
-import { buildContext, CONTINUE_MSG, rewriteMsg, directorBlock, splitNames, latestCheckpoint } from '../prompt.js';
+import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, directorBlock, splitNames, latestCheckpoint } from '../prompt.js';
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { archiveConn, DEFAULT_EVERY } from './memory.js';
 import { parseReply, paragraphs } from '../parse.js';
@@ -481,7 +481,8 @@ export async function render(root, { id }) {
     try { await db.put('nodes', a); } catch {}
     await saveStory();
 
-    const ctx = buildContext(story, pathTo(a.parentId), { modules: st.modules, extra: extraDirector || '', globalMemo: st.globalMemo });
+    const budgetChars = inputBudgetChars(conn);
+    const ctx = buildContext(story, pathTo(a.parentId), { budgetChars, modules: st.modules, extra: extraDirector || '', globalMemo: st.globalMemo });
     if (extraDirector?.trim()) {
       const last = ctx.messages[ctx.messages.length - 1];
       if (last && last.role === 'user') last.content += directorBlock(extraDirector);
@@ -489,6 +490,8 @@ export async function render(root, { id }) {
     if (continueNode && base.trim()) {
       ctx.messages.push({ role: 'assistant', content: base }, { role: 'user', content: rewriteNote != null ? rewriteMsg(rewriteNote) : CONTINUE_MSG });
     }
+    ctx.info.historyChars = ctx.messages.reduce((sum, m) => sum + m.content.length, 0);
+    ctx.info.totalChars = ctx.system.length + ctx.info.historyChars;
     st.lastCtx = ctx;
     if (ctx.info.trimmed) toast(`剧情太长，最早的 ${ctx.info.trimmed} 条没有发给模型`);
 
@@ -504,6 +507,13 @@ export async function render(root, { id }) {
     const onHide = () => { if (document.visibilityState === 'hidden') persist(); };
     document.addEventListener('visibilitychange', onHide);
     try {
+      // 接回只订阅已创建的任务，不重新发送模型请求。
+      if (!resumeJob && ctx.info.totalChars > budgetChars) {
+        const oversized = ctx.info.systemChars >= budgetChars ? '规则、设定、角色卡和前情档案本身' : '最近几轮剧情或本次续写内容';
+        throw new ApiError('input_budget', '本轮输入超过连接的预算，尚未发送请求', {
+          hint: `${oversized}占用过多。打开“⋯ → 查看发给模型的内容”查看占比；可整理重复内容，或在连接设置里调整输入预算。当前约 ${ctx.info.totalChars.toLocaleString()} 字，预算 ${budgetChars.toLocaleString()} 字。`,
+        });
+      }
       const r = await streamWithRetry(conn, {
         system: ctx.system, messages: ctx.messages, signal: ctrl.signal,
         resumeJob, relayServer: saved?.server || '',
@@ -1055,8 +1065,8 @@ export async function render(root, { id }) {
   }
 
   function showContext() {
-    const ctx = st.lastCtx || buildContext(story, headPath(), { modules: st.modules, globalMemo: st.globalMemo });
-    const s = sheet({ title: st.lastCtx ? '上一轮发给模型的内容' : '下一轮会发给模型的内容' });
+    const ctx = st.lastCtx || buildContext(story, headPath(), { budgetChars: inputBudgetChars(st.conn), modules: st.modules, globalMemo: st.globalMemo });
+    const s = sheet({ title: st.lastCtx ? (headPath().at(-1)?.error?.kind === 'input_budget' ? '上轮未发送的内容' : '上一轮发给模型的内容') : '下一轮会发给模型的内容' });
     const i = ctx.info;
     const block = (label, text, open = false) => {
       const d = el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer', fontSize: '14px' }, text: label }), el('pre', { class: 'raw', text }));
@@ -1065,7 +1075,7 @@ export async function render(root, { id }) {
     };
     s.body.append(...[
       el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } },
-        `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），${i.count} 条消息。` +
+        `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），输入预算 ${i.budgetChars.toLocaleString()} 字，${i.count} 条消息。` +
         (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') + '较早轮次的弹幕和选项已去掉，只留正文。'),
       el('div', { class: 'card', style: { fontSize: '14px', lineHeight: 1.7 } },
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),

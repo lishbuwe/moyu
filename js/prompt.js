@@ -189,6 +189,12 @@ export function memoryText(mem) {
  * opts.modules：全局规则模块库
  * 返回 { system, messages, info }，info.parts 是各部分的明细（给查看器用）
  */
+/** 输入预算按字数保守粗估；模型真正的 token 数以接口回报为准。 */
+export function inputBudgetChars(conn) {
+  const n = Number(conn?.inputBudgetChars);
+  return Number.isFinite(n) && n >= 6000 && n <= 120000 ? Math.floor(n) : 30000;
+}
+
 export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '' } = {}) {
   const { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
@@ -251,7 +257,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     system,
     messages,
     info: {
-      systemChars: system.length, historyChars, totalChars: system.length + historyChars, trimmed, count: messages.length,
+      systemChars: system.length, historyChars, totalChars: system.length + historyChars, budgetChars, trimmed, count: messages.length,
       parts: parts.map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
       tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
       memoryUpTo: cp ? cp.mem.upTo : 0,

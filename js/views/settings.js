@@ -305,6 +305,7 @@ export async function render(root, { section }) {
     const model = el('input', { type: 'text', placeholder: '例：claude-sonnet-4-6、deepseek-chat', list: dl.id, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
     model.value = c.model || '';
     const maxT = el('input', { type: 'number', min: '256', step: '256' }); maxT.value = c.maxTokens ?? 8000;
+    const inputBudget = el('input', { type: 'number', min: '6000', max: '120000', step: '1000' }); inputBudget.value = c.inputBudgetChars ?? 30000;
     const temp = el('input', { type: 'number', min: '0', max: '2', step: '0.05', placeholder: '留空' }); temp.value = c.temperature ?? '';
     const streamSw = el('input', { type: 'checkbox' }); streamSw.checked = c.stream !== false;
     const viaRelay = el('input', { type: 'checkbox' }); viaRelay.checked = !!c.viaRelay;
@@ -362,7 +363,7 @@ export async function render(root, { section }) {
     const read = () => ({
       ...c, name: name.value.trim(), format: fmt.value, baseUrl: isV() ? '' : base.value.trim(), apiKey: isV() ? saText.value.trim() : key.value.trim(),
       region: region.value.trim() || 'global',
-      model: model.value.trim(), maxTokens: Number(maxT.value) || 8000, mt8000: true, temperature: temp.value === '' ? '' : Number(temp.value),
+      model: model.value.trim(), maxTokens: Number(maxT.value) || 8000, inputBudgetChars: Math.max(6000, Math.min(120000, Number(inputBudget.value) || 30000)), mt8000: true, temperature: temp.value === '' ? '' : Number(temp.value),
       stream: streamSw.checked, viaRelay: viaRelay.checked,
       priceIn: priceIn.value === '' ? '' : Number(priceIn.value),
       priceOut: priceOut.value === '' ? '' : Number(priceOut.value),
@@ -456,6 +457,8 @@ export async function render(root, { section }) {
         el('div', { class: 'field', style: { flex: 1 } }, el('label', { text: '温度' }), temp,
           el('div', { class: 'hint', text: '留空 = 模型默认。部分新模型不接受自定义温度。' }))
       ),
+      el('div', { class: 'field' }, el('label', { text: '每轮输入预算（字数粗估）' }), inputBudget,
+        el('div', { class: 'hint', text: '默认 30000 字。超出时先省去较早的剧情；规则、档案或近期剧情仍放不下，就在发送前提示，不会产生这次模型费用。这不是模型的精确 token 上限，仍需按所用模型的容量调整。' })),
       el('div', { class: 'section-title', text: '价格（可选，用来算花费）' }),
       el('div', { class: 'field' }, el('label', { text: '计价方式' }), pModeSeg, modeHint),
       (callBox.append(el('div', { class: 'field' }, el('label', { text: '每次多少钱' }), perCall)), callBox),

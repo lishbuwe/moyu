@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { buildContext, formatContract } from '../js/prompt.js';
+import { buildContext, formatContract, inputBudgetChars } from '../js/prompt.js';
 import { optionInput, expandOptionInput } from '../js/personal.js';
 import { APP_VERSION } from '../js/util.js';
 
@@ -16,6 +16,23 @@ test('导入旧规则后仍按个人输入约定解释，保留故事规则，�
   assert.ok(ctx.messages[0].content.includes('A/B/C/D 四行'));
   assert.ok(!ctx.system.includes('【弹幕】'));
   assert.ok(!formatContract({ options: false }).includes('【选项】'));
+});
+
+test('旧连接使用默认输入预算；长档案与最近剧情不会被静默裁掉', () => {
+  assert.equal(inputBudgetChars({}), 30000);
+  assert.equal(inputBudgetChars({ inputBudgetChars: 12000 }), 12000);
+  assert.equal(inputBudgetChars({ inputBudgetChars: -1 }), 30000);
+  const story = { rules: '规则', world: '背景', danmu: false, options: false };
+  const path = Array.from({ length: 10 }, (_, i) => ({
+    id: String(i), role: i % 2 ? 'assistant' : 'user', kind: 'play', text: '剧情'.repeat(800),
+  }));
+  const ctx = buildContext(story, path, { budgetChars: 6000 });
+  assert.equal(ctx.info.budgetChars, 6000);
+  assert.ok(ctx.info.trimmed > 0);
+  assert.ok(ctx.messages.length >= 6);
+  assert.ok(ctx.info.totalChars > 6000, '最后几轮太长时保留原文并交给发送前检查');
+  const longMemory = buildContext({ ...story, world: '设定'.repeat(4000) }, [], { budgetChars: 6000 });
+  assert.ok(longMemory.info.systemChars > 6000, '固定资料过长时不得悄悄删掉设定');
 });
 
 test('选择行动不误作台词，已有括号保持原样', () => {
