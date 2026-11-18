@@ -308,6 +308,7 @@ export async function render(root, { section }) {
     const inputBudget = el('input', { type: 'number', min: '6000', max: '120000', step: '1000' }); inputBudget.value = c.inputBudgetChars ?? 30000;
     const temp = el('input', { type: 'number', min: '0', max: '2', step: '0.05', placeholder: '留空' }); temp.value = c.temperature ?? '';
     const streamSw = el('input', { type: 'checkbox' }); streamSw.checked = c.stream !== false;
+    const cacheSw = el('input', { type: 'checkbox' }); cacheSw.checked = c.promptCache ?? c.format === 'anthropic';
     const viaRelay = el('input', { type: 'checkbox' }); viaRelay.checked = !!c.viaRelay;
     const priceIn = el('input', { type: 'number', min: '0', step: '0.01', placeholder: '不填' }); priceIn.value = c.priceIn ?? '';
     const priceOut = el('input', { type: 'number', min: '0', step: '0.01', placeholder: '不填' }); priceOut.value = c.priceOut ?? '';
@@ -364,7 +365,7 @@ export async function render(root, { section }) {
       ...c, name: name.value.trim(), format: fmt.value, baseUrl: isV() ? '' : base.value.trim(), apiKey: isV() ? saText.value.trim() : key.value.trim(),
       region: region.value.trim() || 'global',
       model: model.value.trim(), maxTokens: Number(maxT.value) || 8000, inputBudgetChars: Math.max(6000, Math.min(120000, Number(inputBudget.value) || 30000)), mt8000: true, temperature: temp.value === '' ? '' : Number(temp.value),
-      stream: streamSw.checked, viaRelay: viaRelay.checked,
+      stream: streamSw.checked, viaRelay: viaRelay.checked, promptCache: cacheSw.checked,
       priceIn: priceIn.value === '' ? '' : Number(priceIn.value),
       priceOut: priceOut.value === '' ? '' : Number(priceOut.value),
       priceCache: priceCache.value === '' ? '' : Number(priceCache.value),
@@ -459,6 +460,8 @@ export async function render(root, { section }) {
       ),
       el('div', { class: 'field' }, el('label', { text: '每轮输入预算（字数粗估）' }), inputBudget,
         el('div', { class: 'hint', text: '默认 30000 字。超出时先省去较早的剧情；规则、档案或近期剧情仍放不下，就在发送前提示，不会产生这次模型费用。这不是模型的精确 token 上限，仍需按所用模型的容量调整。' })),
+      el('div', { class: 'row' }, cacheSw, el('label', { text: '启用提示缓存' })),
+      el('div', { class: 'hint', text: 'Claude 原生缓存稳定的规则、常驻角色和前情；Vertex 支持显式缓存的 Gemini 可创建 10 分钟缓存，产生写入与存储费用。短提示、不支持的模型及其他兼容接口自动跳过；以接口返回的缓存命中 token 为准。' }),
       el('div', { class: 'section-title', text: '价格（可选，用来算花费）' }),
       el('div', { class: 'field' }, el('label', { text: '计价方式' }), pModeSeg, modeHint),
       (callBox.append(el('div', { class: 'field' }, el('label', { text: '每次多少钱' }), perCall)), callBox),

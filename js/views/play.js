@@ -337,7 +337,7 @@ export async function render(root, { id }) {
         onclick: () => {
           const u = n.usageN;
           if (!u) return;
-          toast(`${u.est ? '粗估' : ''}输入 ${fmtTokens(u.input)}${u.cached ? `（缓存命中 ${fmtTokens(u.cached)}）` : ''} · 输出 ${fmtTokens(u.output)}${n.cost ? ' · ' + fmtMoney(n.cost) : ''}`, 4000);
+          toast(`${u.est ? '粗估' : ''}输入 ${fmtTokens(u.input)}${u.cached || u.cacheWrite ? `（命中 ${fmtTokens(u.cached)} / 写入 ${fmtTokens(u.cacheWrite)} / 普通 ${fmtTokens(u.uncached ?? u.input - u.cached)}）` : ''} · 输出 ${fmtTokens(u.output)}${n.cost ? ' · ' + fmtMoney(n.cost) : ''}`, 4000);
         },
       }, metaText));
     }
@@ -515,7 +515,12 @@ export async function render(root, { id }) {
         });
       }
       const r = await streamWithRetry(conn, {
-        system: ctx.system, messages: ctx.messages, signal: ctrl.signal,
+        system: ctx.system, cachePrefix: ctx.cachePrefix, messages: ctx.messages, signal: ctrl.signal,
+        onCacheCreate: (data) => {
+          const n = Number(data.usageMetadata?.totalTokenCount) || 0;
+          if (n) return recordUsage({ kind: '缓存创建', storyId: story.id, model: conn.model,
+            usage: { input: n, cached: 0, cacheWrite: n, uncached: 0, output: 0, est: false } });
+        },
         resumeJob, relayServer: saved?.server || '',
         onJob: async (jobId, server) => {
           a.relayJob = jobId;
@@ -574,7 +579,9 @@ export async function render(root, { id }) {
         const c = computeCost(u, conn);
         // 续写/从某段重写：把这次的花费累加到同一条上
         if (continuation && a.usageN) {
-          a.usageN = { input: a.usageN.input + u.input, cached: (a.usageN.cached || 0) + u.cached, output: a.usageN.output + u.output, est: a.usageN.est || u.est };
+          a.usageN = { input: a.usageN.input + u.input, cached: (a.usageN.cached || 0) + u.cached,
+            cacheWrite: (a.usageN.cacheWrite || 0) + u.cacheWrite, uncached: (a.usageN.uncached ?? a.usageN.input - (a.usageN.cached || 0)) + u.uncached,
+            output: a.usageN.output + u.output, est: a.usageN.est || u.est };
           a.cost = c && a.cost && a.cost.currency === c.currency ? { ...c, amount: a.cost.amount + c.amount, est: a.cost.est || c.est } : (c || a.cost || null);
         } else { a.usageN = u; a.cost = c; }
         await recordUsage({ kind: usageKind, storyId: story.id, model: conn?.model || a.model, usage: u, cost: c,
@@ -973,18 +980,23 @@ export async function render(root, { id }) {
     const cutoff = logged.length ? logged[0].at - 600000 : Infinity;
     const older = [...nodes.values()]
       .filter((n) => n.role === 'assistant' && n.usageN && (n.createdAt || 0) < cutoff)
-      .map((n) => ({ at: n.createdAt || 0, kind: n.kind === 'ooc' ? '出戏' : '正文', model: n.model || '', input: n.usageN.input || 0, cached: n.usageN.cached || 0, output: n.usageN.output || 0, est: !!n.usageN.est, cost: n.cost || null }));
+      .map((n) => ({ at: n.createdAt || 0, kind: n.kind === 'ooc' ? '出戏' : '正文', model: n.model || '', input: n.usageN.input || 0, cached: n.usageN.cached || 0,
+        cacheWrite: n.usageN.cacheWrite || 0, uncached: n.usageN.uncached ?? Math.max(0, (n.usageN.input || 0) - (n.usageN.cached || 0)),
+        output: n.usageN.output || 0, est: !!n.usageN.est, cost: n.cost || null }));
     const log = [...older, ...logged].sort((a, b) => a.at - b.at);
     const month = await getMonthSpend();
     const budget = await getBudget();
     const money = (o) => ['CNY', 'USD'].filter((c) => o[c] > 0).map((c) => CUR[c] + (o[c] < 0.01 ? Number(o[c].toPrecision(2)) : o[c].toFixed(2))).join(' + ');
     // 这个故事：按用途汇总（正文 / 整理前情 / 拆角色卡 / 补选项 / 番外…）
     const by = new Map();
-    const tot = { CNY: 0, USD: 0, input: 0, output: 0, count: 0, est: false, unpriced: 0 };
+    const tot = { CNY: 0, USD: 0, input: 0, cached: 0, cacheWrite: 0, uncached: 0, output: 0, count: 0, est: false, unpriced: 0 };
     for (const x of log) {
       const g = by.get(x.kind) || { CNY: 0, USD: 0, input: 0, output: 0, count: 0 };
       for (const o of [g, tot]) {
         o.input += x.input; o.output += x.output; o.count++;
+        o.cached = (o.cached || 0) + (x.cached || 0);
+        o.cacheWrite = (o.cacheWrite || 0) + (x.cacheWrite || 0);
+        o.uncached = (o.uncached || 0) + (x.uncached ?? Math.max(0, x.input - (x.cached || 0)));
         if (x.cost) o[x.cost.currency] = (o[x.cost.currency] || 0) + x.cost.amount;
       }
       if (x.est) tot.est = true;
@@ -997,20 +1009,21 @@ export async function render(root, { id }) {
     // 按次计价：没记上金额的早期调用，按现在的单价补算一个参考数
     const callMode = priceMode(st.conn) === 'call';
     const perCall = callMode ? Number(st.conn.pricePerCall) || 0 : 0;
-    const callEst = callMode ? `按次：${tot.count} 次 × ${CUR[st.conn.currency || 'CNY']}${perCall} ≈ ${CUR[st.conn.currency || 'CNY']}${(tot.count * perCall).toFixed(2)}${tot.unpriced ? `（其中 ${tot.unpriced} 次是设单价之前的，按现在的单价补算）` : ''}` : '';
+    const callCount = log.filter((x) => x.kind !== '缓存创建').length;
+    const callEst = callMode ? `按次：${callCount} 次 × ${CUR[st.conn.currency || 'CNY']}${perCall} ≈ ${CUR[st.conn.currency || 'CNY']}${(callCount * perCall).toFixed(2)}` : '';
     s.body.append(
       el('div', { class: 'section-title', style: { marginTop: 0 }, text: '这个故事' }),
       el('div', { class: 'card' },
-        el('div', { style: { fontSize: '22px', fontWeight: '600' } }, callMode ? `${CUR[st.conn.currency || 'CNY']}${(tot.count * perCall).toFixed(2)}` : money(tot) ? (tot.est ? '约 ' : '') + money(tot) : (noPrice ? '没设计价方式，算不出金额' : '—')),
-        el('div', { class: 'hint', style: { whiteSpace: 'pre-wrap' } }, (callEst ? callEst + '\n' : '') + `共 ${tot.count} 次调用 · 输入 ${fmtTokens(tot.input)} · 输出 ${fmtTokens(tot.output)} token` +
-          (avgIn ? `\n正文平均每轮发出去 ${fmtTokens(avgIn)} token（规则、设定、角色卡、前情和最近几章原文，每轮都要重发）` : ''))),
+        el('div', { style: { fontSize: '22px', fontWeight: '600' } }, callMode ? `${CUR[st.conn.currency || 'CNY']}${(callCount * perCall).toFixed(2)}` : money(tot) ? (tot.est ? '约 ' : '') + money(tot) : (noPrice ? '没设计价方式，算不出金额' : '—')),
+        el('div', { class: 'hint', style: { whiteSpace: 'pre-wrap' } }, (callEst ? callEst + '\n' : '') + `共 ${tot.count} 次调用 · 输入 ${fmtTokens(tot.input)}（命中 ${fmtTokens(tot.cached)} / 写入 ${fmtTokens(tot.cacheWrite)} / 普通 ${fmtTokens(tot.uncached)}） · 输出 ${fmtTokens(tot.output)} token` +
+          (avgIn ? `\n正文平均每轮总输入 ${fmtTokens(avgIn)} token；命中缓存的部分仍计入总输入。` : ''))),
       ...(by.size ? [el('div', { class: 'card' }, ...[...by.entries()].map(([k, g]) => el('div', { class: 'row', style: { justifyContent: 'space-between', flexWrap: 'nowrap', fontSize: '14px', padding: '3px 0' } },
         el('span', { text: `${k} × ${g.count}` }),
-        el('span', { style: { color: 'var(--text2)' }, text: `入 ${fmtTokens(g.input)} · 出 ${fmtTokens(g.output)}${money(g) ? ' · ' + money(g) : ''}` }))))] : []),
+        el('span', { style: { color: 'var(--text2)' }, text: `入 ${fmtTokens(g.input)}（命中 ${fmtTokens(g.cached)} / 写入 ${fmtTokens(g.cacheWrite)} / 普通 ${fmtTokens(g.uncached)}） · 出 ${fmtTokens(g.output)}${money(g) ? ' · ' + money(g) : ''}` }))))] : []),
       log.length ? el('div', { class: 'section-title', text: '最近的调用' }) : null,
       log.length ? el('div', { class: 'card', style: { padding: '8px 14px' } }, ...log.slice(-30).reverse().map((x) => el('div', { class: 'row', style: { justifyContent: 'space-between', flexWrap: 'nowrap', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--line)' } },
         el('span', { style: { whiteSpace: 'nowrap' }, text: `${new Date(x.at).toTimeString().slice(0, 5)} ${x.kind}` }),
-        el('span', { style: { color: 'var(--text2)', textAlign: 'right' }, text: `${x.est ? '约' : ''}入 ${fmtTokens(x.input)}${x.cached ? `（缓存 ${fmtTokens(x.cached)}）` : ''} · 出 ${fmtTokens(x.output)}${x.cost ? ' · ' + fmtMoney(x.cost) : ''}` })))) : null,
+        el('span', { style: { color: 'var(--text2)', textAlign: 'right' }, text: `${x.est ? '约' : ''}入 ${fmtTokens(x.input)}（命中 ${fmtTokens(x.cached)} / 写入 ${fmtTokens(x.cacheWrite)} / 普通 ${fmtTokens(x.uncached ?? x.input - (x.cached || 0))}） · 出 ${fmtTokens(x.output)}${x.cost ? ' · ' + fmtMoney(x.cost) : ''}` })))) : null,
       el('div', { class: 'section-title', text: '本月（所有故事）' }),
       el('div', { class: 'card' },
         el('div', { style: { fontSize: '22px', fontWeight: '600' } }, money(month) || (month.count ? '没设计价方式，算不出金额' : '—')),
@@ -1019,7 +1032,7 @@ export async function render(root, { id }) {
       el('div', { class: 'hint', style: { whiteSpace: 'pre-wrap' } },
         [noPrice ? '金额要在“设置 → 连接 → 编辑”里选计价方式：按次（每次多少钱）或按 token（每百万 token 多少钱）。不设就只统计次数和 token。' : '',
           tot.est ? '带“约”的是按字数粗估的：这个接口没有返回真实用量。' : '',
-          '金额按你设的价格估算，实际扣费以中转站或官方后台的日志为准。'].filter(Boolean).join('\n'))
+          '金额按你设的价格估算；Claude 缓存写入溢价和 Vertex 缓存存储费未计入。实际扣费以官方后台为准。'].filter(Boolean).join('\n'))
     );
     s.foot.append(el('button', { class: 'btn ghost', onclick: () => { s.close(); go('settings'); } }, '去设价格 / 提醒线'), el('button', { class: 'btn primary', onclick: () => s.close() }, '关闭'));
   }

@@ -1,5 +1,5 @@
 // 墨游 · 每轮重新拼装发给模型的内容
-// 顺序：不常变的放前面（规则 → 设定 → 格式），剧情原文在后——以后加缓存时省钱。
+// 顺序：固定规则、设定、常驻角色卡、前情档案 → 动态模块和角色 → 对话原文。
 
 import { forContext } from './parse.js';
 import { INPUT_CONVENTION, PERSONAL_RULES } from './personal.js';
@@ -203,12 +203,14 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   add('开头', '你正在主持一场文字互动小说。', 'base');
   add('规则（这个故事）', story.rules?.trim() ? '【规则】\n' + story.rules.trim() : '', 'rules');
   add('全局备忘', globalMemo?.trim() ? '【全局备忘（所有故事通用）】\n' + globalMemo.trim() : '', 'rules');
-  for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
   add('世界与角色设定', story.world?.trim() ? '【世界与角色设定】\n' + story.world.trim() : '', 'world');
   add('主角', protagonistText(story, path), 'card');
-  const coreFirst = [...sentCards].sort((a, b) => (b.core ? 1 : 0) - (a.core ? 1 : 0));
-  for (const c of coreFirst) add(`角色卡 · ${c.name}${c.core ? '（常驻）' : '（被提到）'}`, cardText(applyCardState(c, cp?.mem)), 'card');
+  for (const c of sentCards.filter((c) => c.core)) add(`角色卡 · ${c.name}（常驻）`, cardText(applyCardState(c, cp?.mem)), 'card');
   if (cp) add(`前情档案 · 整理到第 ${cp.mem.upTo} 章`, memoryText(cp.mem), 'memory');
+  // 只在稳定前缀末尾放缓存断点；本轮命中的模块和非核心角色不会使它失效。
+  const cachePrefix = parts.map((p) => p.text).join('\n\n');
+  for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
+  for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, cardText(applyCardState(c, cp?.mem)), 'card');
   add('玩家输入约定', INPUT_CONVENTION, 'rules');
   add('输出格式', '【输出格式】\n' + formatContract({ danmu: story.danmu !== false, options: story.options !== false }), 'format');
   const system = parts.map((p) => p.text).join('\n\n');
@@ -255,6 +257,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const historyChars = size(messages);
   return {
     system,
+    cachePrefix,
     messages,
     info: {
       systemChars: system.length, historyChars, totalChars: system.length + historyChars, budgetChars, trimmed, count: messages.length,

@@ -9,6 +9,7 @@
 import { resolveVertex, parseServiceAccount, vertexBaseUrl, VERTEX_MODELS } from './vertex.js';
 import { getRelay, relayFetch, RelayError } from './relay.js';
 import { inspectReasoning, stripReasoning } from './reasoning.js';
+import { prepareVertexCache } from './cache.js';
 
 export const FORMAT_LABEL = { auto: '自动识别', openai: 'OpenAI 兼容', anthropic: 'Claude 原生', vertex: 'Google Vertex AI（服务账号 JSON）' };
 
@@ -115,13 +116,19 @@ export function tidyMessages(messages) {
   return out;
 }
 
-function buildBody(format, conn, { system, messages, stream, maxTokens }) {
+function buildBody(format, conn, { system, messages, stream, maxTokens, cachePrefix = '', cacheName = '' }) {
   const mt = num(maxTokens) || num(conn.maxTokens) || 8000;
   const temp = num(conn.temperature);
   const msgs = tidyMessages(messages);
   if (format === 'anthropic') {
     const b = { model: conn.model, max_tokens: mt, messages: msgs };
-    if (system) b.system = system;
+    if (system) {
+      if (conn.promptCache !== false && cachePrefix && system.startsWith(cachePrefix)) {
+        const rest = system.slice(cachePrefix.length).replace(/^\n\n/, '');
+        b.system = [{ type: 'text', text: cachePrefix, cache_control: { type: 'ephemeral' } }];
+        if (rest) b.system.push({ type: 'text', text: rest });
+      } else b.system = system;
+    }
     if (temp != null) b.temperature = temp;
     if (stream) b.stream = true;
     return b;
@@ -134,6 +141,7 @@ function buildBody(format, conn, { system, messages, stream, maxTokens }) {
     // 让流式也返回用量（算花费用）；个别接口不认这个参数，会自动退回
     if (conn.usageOpt !== false) b.stream_options = { include_usage: true };
   }
+  if (cacheName) b.extra_body = { google: { cached_content: cacheName } };
   return b;
 }
 
@@ -176,6 +184,8 @@ function httpError(status, raw, url) {
   }
   // 400 / 422 等：尽量猜出是哪个参数
   if (/stream_options|include_usage/i.test(msg)) return new ApiError('no_stream_options', '这个接口不支持返回用量', { ...o, hint: '会自动改成不要用量再试一次，花费改按字数估算。' });
+  if (/cache_control/i.test(msg)) return new ApiError('no_cache_control', '这个接口不支持提示缓存', { ...o, hint: '会关闭这个连接的缓存标记并重试。' });
+  if (/cached_content|cached content/i.test(msg)) return new ApiError('no_cached_content', 'Vertex 缓存暂时不可用', { ...o, hint: '会不用缓存重试本轮请求。' });
   if (/model/i.test(msg) && /(not ?found|not exist|does not exist|invalid|unknown|not supported|无可用渠道|不存在|不支持)/i.test(msg)) {
     return new ApiError('model', '模型名不对，或这个接口没有这个模型', { ...o, hint: '在连接设置里点“获取模型列表”核对一下。' });
   }
@@ -228,17 +238,24 @@ function partsText(content) {
   return '';
 }
 
+function responseUsage(j) {
+  if (j?.usage) return j.usage;
+  const u = j?.usageMetadata;
+  return u ? { prompt_tokens: u.promptTokenCount ?? 0, completion_tokens: u.candidatesTokenCount ?? 0,
+    cached_content_token_count: u.cachedContentTokenCount ?? 0 } : null;
+}
+
 function parseNonStream(format, j) {
   if (j && j.error) throw streamError(j, '');
   if (format === 'anthropic') {
     const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     const thinking = (j.content || []).some((b) => b.type === 'thinking');
-    return { text, finish: j.stop_reason, usage: j.usage || null, thinking };
+    return { text, finish: j.stop_reason, usage: responseUsage(j), thinking };
   }
   const ch = j.choices?.[0];
   const internal=['analysis','reasoning','thinking'].includes(ch?.message?.channel);
   const text = internal?'':partsText(ch?.message?.content);
-  return { text, finish: ch?.finish_reason, usage: j.usage || null, thinking: internal || !!(ch?.message?.reasoning_content || ch?.message?.reasoning) };
+  return { text, finish: ch?.finish_reason, usage: responseUsage(j), thinking: internal || !!(ch?.message?.reasoning_content || ch?.message?.reasoning) };
 }
 
 // ───────────── 发请求 ─────────────
@@ -282,15 +299,18 @@ export async function streamChat(conn, opts = {}) {
     throw e;
   }
 }
-async function streamChatRaw(conn, { system, messages = [], maxTokens, signal, onText = () => {}, onThinking = () => {}, onJob, resumeJob = null, relayServer = '', direct = false, firstByteMs = 150000, idleMs = 90000 }) {
+async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', maxTokens, signal, onText = () => {}, onThinking = () => {}, onCacheCreate, onJob, resumeJob = null, relayServer = '', direct = false, firstByteMs = 150000, idleMs = 90000 }) {
+  const originalConn = conn;
   if (!resumeJob) { checkConn(conn); conn = await effectiveConn(conn); }
   const format = guessFormat(conn);
   const url = resumeJob ? '' : normalizeUrl(format, conn.baseUrl);
   const wantStream = conn.stream !== false;
-  const body = buildBody(format, conn, { system, messages, stream: wantStream, maxTokens });
   const ctrl = linkAbort(signal);
   const config = resumeJob || (conn.viaRelay && !direct) ? await getRelay() : null;
   const viaRelay = !!resumeJob || !!(config?.on && conn.viaRelay && !direct);
+  const cacheRequest = (cacheUrl, init) => viaRelay ? relayFetch(cacheUrl, init, { config }) : fetch(cacheUrl, init);
+  const cacheName = !resumeJob ? await prepareVertexCache(originalConn, system, conn.apiKey, cacheRequest, ctrl.signal, onCacheCreate) : '';
+  const body = buildBody(format, conn, { system: cacheName ? '' : system, messages, cachePrefix, cacheName, stream: wantStream, maxTokens });
   let timer = null;
   let timedOut = false;
   const arm = (ms) => { clearTimeout(timer); timer = setTimeout(() => { timedOut = true; ctrl.abort('idle'); }, ms); };
@@ -378,7 +398,7 @@ async function streamChatRaw(conn, { system, messages = [], maxTokens, signal, o
           if (internal || delta.reasoning_content || delta.reasoning) { sawThinking = true; onThinking(); }
           if (ch.finish_reason) finish = ch.finish_reason;
         }
-        if (j.usage) usage = j.usage;
+        if (responseUsage(j)) usage = responseUsage(j);
       };
       for (;;) {
         const { value, done } = await reader.read();
@@ -438,6 +458,16 @@ export async function streamWithRetry(conn, opts, { retries = 1, onRetry = () =>
       if (e instanceof ApiError && e.kind === 'no_stream_options' && conn.usageOpt !== false) {
         conn = { ...conn, usageOpt: false };
         onConnPatch({ usageOpt: false });
+        continue;
+      }
+      if (e instanceof ApiError && e.kind === 'no_cache_control' && conn.promptCache !== false && !e.receivedOutput) {
+        conn = { ...conn, promptCache: false };
+        onConnPatch({ promptCache: false });
+        continue;
+      }
+      if (e instanceof ApiError && e.kind === 'no_cached_content' && conn.promptCache === true && !e.receivedOutput) {
+        conn = { ...conn, promptCache: false };
+        onConnPatch({ promptCache: false });
         continue;
       }
       const retriable = e instanceof ApiError && ['network', 'ratelimit', 'server', 'overloaded'].includes(e.kind) && !e.partial && !e.receivedOutput;
