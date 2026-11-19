@@ -388,8 +388,13 @@ export async function render(root, { id }) {
     }
     updateHeader();
     updateComposer();
+    scroller.scrollLeft = 0;
     if (focusId) {
-      requestAnimationFrame(() => feed.querySelector(`[data-id="${CSS.escape(focusId)}"]`)?.scrollIntoView({ block: 'start' }));
+      requestAnimationFrame(() => {
+        const target = feed.querySelector(`[data-id="${CSS.escape(focusId)}"]`);
+        if (!target) return;
+        scroller.scrollTop += target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientTop;
+      });
     } else if (stick) requestAnimationFrame(toBottom);
   }
 

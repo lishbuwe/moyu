@@ -13,7 +13,7 @@ globalThis.requestAnimationFrame = fn => setTimeout(fn, 0); globalThis.cancelAni
 globalThis.confirm = () => true;
 dom.window.HTMLElement.prototype.scrollIntoView = function() {};
 const style = document.createElement('style'); style.textContent = await readFile(new URL('../css/app.css', import.meta.url), 'utf8'); document.head.append(style);
-const { db, exportAll } = await import('../js/db.js');
+const { db, exportAll, importData } = await import('../js/db.js');
 const { choiceInput, toggleChoice, expandOptionInput } = await import('../js/personal.js');
 const { readAttachment, attachmentBytes, selectedImport } = await import('../js/attachments.js');
 const { chatMessages, newDiscussion, saveDiscussion, getDiscussion, exportDiscussions } = await import('../js/discuss.js');
@@ -74,6 +74,38 @@ test('游玩真实按钮多选与发送，输入栏采用居中对齐', async ()
     const sent=requests[0].body.messages.at(-1).content;
     assert.ok(sent.includes('（查看地图）\n（收好信件）\n（把信放进包里）'));
     assert.equal(ta.value,'');
+  } finally { dispose(); }
+});
+
+test('导入后的长文本完整显示，选段重写定位只移动正文滚动区的纵轴', async (t) => {
+  const story = { id: 'import-layout', title: '导入故事', headId: 'import-reply', cards: [], danmu: false };
+  const wide = 'https://example.test/' + 'abc'.repeat(180);
+  const nodes = [
+    { id: 'import-start', storyId: story.id, role: 'user', kind: 'start', text: '开始' },
+    { id: 'import-reply', storyId: story.id, parentId: 'import-start', role: 'assistant', kind: 'play',
+      status: 'done', text: '# ' + wide + '\n\n正文保留。\n\n【选项】\nA. ' + wide },
+  ];
+  await importData({ app: 'moyu', schema: 1, stories: [story], nodes });
+  globalThis.CSS = { escape: (id) => id };
+  t.after(() => { delete globalThis.CSS; });
+  const nativeScroll = t.mock.method(dom.window.HTMLElement.prototype, 'scrollIntoView', () => {});
+  const dispose = await play.render(root, { id: story.id });
+  try {
+    const scroller = root.querySelector('.play-scroll');
+    const reply = root.querySelector('[data-id="import-reply"]');
+    assert.equal(reply.querySelector('h2').textContent, wide);
+    assert.equal(reply.querySelector('.options button').textContent, 'A' + wide);
+    t.mock.method(scroller, 'getBoundingClientRect', () => ({ top: 48 }));
+    t.mock.method(dom.window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+      return { top: this.dataset.id === 'import-reply' ? 248 : 0 };
+    });
+    scroller.scrollLeft = 90;
+    root.querySelector('.chapter-row .more').click();
+    [...document.querySelectorAll('.menu-list button')].find((b) => b.textContent.startsWith('从某一段往后重写')).click();
+    await wait(() => scroller.scrollTop === 200);
+    assert.equal(scroller.scrollLeft, 0);
+    assert.equal(nativeScroll.mock.callCount(), 0);
+    assert.equal((await db.get('nodes', 'import-reply')).text, nodes[1].text);
   } finally { dispose(); }
 });
 

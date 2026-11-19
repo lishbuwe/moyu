@@ -158,8 +158,9 @@ a { color: var(--accent); }
 
 /* 正文 */
 .feed { max-width: 720px; margin: 0 auto; padding: 10px 18px 24px; }
-.play-scroll { overflow-x: hidden; }
-.play-scroll .feed { overflow-wrap: anywhere; }
+.play-scroll { min-width: 0; overflow-x: hidden; }
+/* 正文层拦住越界内容，外层继续负责纵向滚动。 */
+.play-scroll .feed { width: 100%; overflow-x: clip; overflow-wrap: anywhere; }
 .turn { margin: 0 0 14px; }
 .gm { font-family: var(--read-font); font-size: var(--read-size); line-height: 1.9; }
 .gm .chapter { font-family: var(--ui-font); font-size: 13px; color: var(--text3); letter-spacing: .08em; margin: 20px 0 2px; }
@@ -186,7 +187,7 @@ a { color: var(--accent); }
 
 /* 每轮的操作按钮、版本切换、选段重写 */
 .chapter-row { display: flex; align-items: center; gap: 4px; margin: 20px 0 2px; font-family: var(--ui-font); }
-.chapter-row .chapter { flex: 1; margin: 0; }
+.chapter-row .chapter { flex: 1; min-width: 0; margin: 0; }
 .more {
   border: 0; background: transparent; color: var(--text3); font-size: 18px; line-height: 1; padding: 2px 8px; cursor: pointer;
   font-family: var(--ui-font); border-radius: 8px;
@@ -200,7 +201,7 @@ a { color: var(--accent); }
   position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; font-family: var(--ui-font); font-size: 13px;
   color: var(--accent); background: var(--bg); padding: 8px 0; margin-bottom: 6px; border-bottom: 1px dashed var(--accent);
 }
-.pick-bar span { flex: 1; }
+.pick-bar span { flex: 1; min-width: 0; }
 
 /* 角色（照老版的登场人物卡片） */
 .npc-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
