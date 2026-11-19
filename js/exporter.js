@@ -59,7 +59,7 @@ export async function buildTranscript(storyId, opts = {}) {
       world: story.world || '', opening: story.opening || '', protagonist: story.protagonist || null,
       cards: (story.cards || []).filter((c) => c.name?.trim()).map((c0) => {
         const c = applyCardState(c0, cp?.mem);
-        return { name: c.name, aliases: c.aliases || '', core: !!c.core, initial: c.initial || '', base: c.base || '', voice: c.voice || '', forbid: c.forbid || '', arc: c.arc || '', now: c.now || '', relation: c.relation || '' };
+        return { name: c.name, aliases: c.aliases || '', core: !!c.core, publicProfile: c.publicProfile || '', initial: c.initial || '', base: c.base || '', voice: c.voice || '', forbid: c.forbid || '', arc: c.arc || '', now: c.now || '', relation: c.relation || '' };
       }),
     };
   }

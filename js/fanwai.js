@@ -114,7 +114,8 @@ export function buildExtraContext(story, opts) {
   const recentMaterial = picked.filter((c) => !pinnedSet.has(c.no)).map(materialOf).join('\n\n');
   const pinnedMaterial = picked.filter((c) => pinnedSet.has(c.no)).map(materialOf).join('\n\n');
   const material = [recentMaterial, pinnedMaterial].filter(Boolean).join('\n\n');
-  const chosenPov = pov || opts.cast?.owner?.name || '';
+  const observer = layout === 'report' ? opts.cast?.reporter : layout === 'chat' ? opts.cast?.owner : null;
+  const chosenPov = pov || observer?.name || '';
   const eligible = recordsAt(opts.historyPath || opts.path || [], anchorNo).filter((r) =>
     scope === 'all' || (scope === 'public' ? r.knowers?.includes('公开') : r.knowers?.includes('公开') || (chosenPov && r.knowers?.includes(chosenPov))));
   const memory = layeredMemory({ upTo: anchorNo, records: eligible }, [request, pov, castNames(opts.cast).join(' '), ...upto.slice(-2).map((c) => c.title)].join(' '),
@@ -125,7 +126,7 @@ export function buildExtraContext(story, opts) {
   const cards = (story.cards || []).filter((c) => c.name?.trim() && (!c.auto?.from || c.auto.from <= anchorNo) &&
     (['chat','fic'].includes(layout) || [opts.cast?.owner,opts.cast?.partner,opts.cast?.subject].some(p=>p?.kind==='mixed') || c.core || c.name === pov || splitNames(c).some((n) => (n === c.name || n.length >= 2) && scan.includes(n))));
   const pastCp = [...(opts.path || [])].reverse().find((n) => n.checkpoint?.upTo <= anchorNo)?.checkpoint;
-  const presentNow = Array.isArray(opts.historyPath) && opts.historyPath.filter((n) => n.role === 'assistant' && n.kind !== 'ooc').length <= anchorNo;
+  const presentNow = opts.atLiveHead ?? (Array.isArray(opts.historyPath) && opts.historyPath.filter((n) => n.role === 'assistant' && n.kind !== 'ooc').length <= anchorNo);
   const asOfCard = (c) => {
     if (presentNow) return c;
     const saved = pastCp?.cards?.[c.name];
@@ -163,11 +164,13 @@ export function buildExtraContext(story, opts) {
   add(`形式 · ${template?.name || '自定义'}`, '【这篇的形式与写法】\n' + (template?.text?.trim() || '按下面玩家的要求来写。'));
   add('知情范围', '【知情范围】\n' + scopeText);
   for (const m of modules) add(`规则模块 · ${m.name}`, `【规则模块·${m.name}】\n${m.text.trim()}`);
-  add('世界设定', story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '');
-  add('主角', protagonistText(story, opts.path || []));
+  add('世界设定', rawAllowed && story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '');
+  const p = story.protagonist || {};
+  const protagonist = rawAllowed ? story : { protagonist: { name: p.name, gender: p.gender, publicProfile: p.publicProfile } };
+  add('主角', protagonistText(protagonist, opts.path || []));
   if (memory.core) add('截至时间点的核心记忆', '【截至时间点已确认的核心记忆】\n' + memory.core);
   if (memory.state) add('当时的状态', '【当时未决事项和物品】\n' + memory.state);
-  for (const c of cards) add(`角色卡 · ${c.name}`, cardText(asOfCard(c)));
+  for (const c of cards) add(`角色卡 · ${c.name}`, cardText(rawAllowed ? asOfCard(c) : { name: c.name, publicProfile: c.publicProfile }));
   if (memory.recalled) add('历史记忆检索', '【从此前全部合格记忆召回】\n' + memory.recalled);
   add('时间点', anchorNo > 0
     ? `【时间点】这篇番外发生在正史第 ${anchorNo} 章之后。第 ${anchorNo} 章之后的正史还没有发生，不要写到。`

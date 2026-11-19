@@ -1,8 +1,8 @@
 // 墨游 · 每轮重新拼装发给模型的内容
 // 顺序：固定规则、设定、常驻角色卡、前情档案 → 动态模块和角色 → 对话原文。
 
-import { forContext } from './parse.js';
-import { INPUT_CONVENTION, PERSONAL_RULES } from './personal.js';
+import { forContext, parseReply } from './parse.js';
+import { INPUT_CONVENTION, PERSONAL_RULES, OPTION_GUIDE } from './personal.js';
 import { protagonistState, PROTAGONIST_FIELDS } from './protagonist.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
@@ -26,16 +26,7 @@ export function formatContract({ danmu = true, options = true } = {}) {
       '（3到8条，一行一条。弹幕是正在看这段剧情的读者实况：吐槽、嗑CP、站队、预测、尖叫，长短错落；不复述正文原句，不写分析文。剧中人物不知道弹幕存在。）'
     );
   }
-  if (options) {
-    parts.push(
-      '【选项】',
-      'A. ……',
-      'B. ……',
-      'C. ……',
-      'D. ……',
-      '（4个方向明显不同的参考行动，标为 A/B/C/D：写具体能做的事，不写结果，不泄露隐藏信息。玩家也可以完全不按选项来。）'
-    );
-  }
+  if (options) parts.push(OPTION_GUIDE);
   parts.push('', '玩家以“（出戏）”开头的话是场外交流：用场外身份简短直接地回答，不推进剧情，不用上面的格式。');
   return parts.join('\n');
 }
@@ -51,7 +42,7 @@ export function userContent(node, { withDirector = false } = {}) {
   } else if (node.kind === 'ooc') {
     c = '（出戏）' + (node.text || '');
   } else {
-    c = node.text || '';
+    c = (node.kind === 'play' && !node.inputFormat ? '【旧版输入】\n' : '') + (node.text || '');
   }
   if (withDirector && node.director?.trim()) c += directorBlock(node.director);
   return c;
@@ -85,6 +76,7 @@ export function protagonistText(story, path = []) {
   const lines = [
     p.name?.trim() ? `名字：${p.name.trim()}` : '',
     p.gender?.trim() ? `性别：${p.gender.trim()}${/女/.test(p.gender) ? '（用“她”）' : /男/.test(p.gender) ? '（用“他”）' : ''}` : '',
+    p.publicProfile?.trim() || '',
     p.note?.trim() ? p.note.trim() : '',
     ...Object.entries(protagonistState(p, path)).map(([key, entry]) => `当前·${PROTAGONIST_FIELDS[key]}：${entry.value}`),
   ].filter(Boolean);
@@ -94,6 +86,7 @@ export function protagonistText(story, path = []) {
 
 export function cardText(c) {
   const parts = [`【角色卡·${c.name || '未命名'}】` + (c.aliases?.trim() ? `（也叫：${c.aliases.trim()}）` : '')];
+  if (c.publicProfile?.trim()) parts.push('〔公开资料〕\n' + c.publicProfile.trim());
   if (c.initial?.trim()) parts.push('〔初始设定〕\n' + c.initial.trim());
   if (c.base?.trim()) parts.push('〔底色：遇事怎么做、说话的样子、身份与配套〕\n' + c.base.trim());
   if (c.voice?.trim()) parts.push('〔原话（只用来校准口气和节奏，不要照抄）〕\n' + asList(c.voice));
@@ -112,9 +105,12 @@ function mentioned(text, card) {
 /** 用来判断“谁在场 / 哪个关键词出现了”的文字：本轮输入、导演指令、最近两条回复 */
 export function scanText(path, extra = '') {
   const users = path.filter((n) => n.role === 'user');
-  const replies = path.filter((n) => n.role === 'assistant' && n.text);
+  const replies = path.filter((n) => n.role === 'assistant' && n.kind !== 'ooc' && n.text);
   const u = users[users.length - 1];
-  return [u?.text || '', u?.director || '', ...replies.slice(-2).map((n) => stripReasoning(n.text)), extra].join('\n');
+  return [u?.text || '', u?.director || '', ...replies.slice(-2).map((n) => {
+    const { title, body } = parseReply(n.text);
+    return [title, body].filter(Boolean).join('\n');
+  }), extra].join('\n');
 }
 
 /**
@@ -140,7 +136,7 @@ export function selectExtras(story, path, modules = [], extra = '') {
 /** 末尾提醒：在场角色的禁止清单，放在最后一条玩家消息里（离模型“下笔”最近） */
 /** 每轮最后一句的格式提醒：规则很长时模型容易忘了写弹幕和选项 */
 export function formatTail(story) {
-  const want = [story.danmu !== false ? '【弹幕】' : '', story.options !== false ? '【选项】（A/B/C/D 四行）' : ''].filter(Boolean);
+  const want = [story.danmu !== false ? '【弹幕】' : '', story.options !== false ? '【选项】' : ''].filter(Boolean);
   if (!want.length) return '';
   return `\n\n（格式提醒：正文写完后依次写${want.join('和')}，不要省略。）`;
 }

@@ -56,7 +56,7 @@ export function openStoryEditor(existing, prefill = null) {
     pGender.value = pro.gender || '';
 
     const dm = switchRow('弹幕', '读者实况评论，显示在正文下面', story.danmu !== false);
-    const op = switchRow('参考选项', '每轮给 A/B/C/D 四个方向不同的行动建议', story.options !== false);
+    const op = switchRow('参考选项', '每轮给可编辑的行动建议，数量按本局规则，默认三个', story.options !== false);
 
     s.body.append(
       el('div', { class: 'field' }, el('label', { text: '故事名' }), title),

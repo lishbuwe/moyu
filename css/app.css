@@ -253,7 +253,6 @@ a { color: var(--accent); }
   padding: 10px 12px; font-size: 14.5px; line-height: 1.55; cursor: pointer; color: var(--text);
 }
 .options button:active { background: var(--accent-soft); }
-.options button.selected { border-color: var(--accent); background: var(--accent-soft); }
 .options button .k { color: var(--accent); font-weight: 600; margin-right: 6px; }
 
 /* 回复工具条 */

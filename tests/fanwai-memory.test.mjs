@@ -63,3 +63,20 @@ test('按时间点快照取旧累计栏目，删除的旧事项不会从更早�
   assert.deepEqual(recordsAt(path, 10).map((r) => r.event), ['仍未解决的新事项']);
   assert.deepEqual(recordsAt(path, 8).map((r) => r.event), ['已解决的旧事项']);
 });
+
+test('公开和角色视角隔离混写的卡片，全知在同一时间点保留秘密', () => {
+  const {story,opts}=fixture();
+  story.cards[0].base='私密底稿：红章藏在阁楼。';
+  story.cards[0].publicProfile='常穿蓝外套，说话很慢。';
+  story.protagonist.note='她独自藏起第二把钥匙。';
+  story.protagonist.publicProfile='留齐肩短发。';
+  story.world='幕后设定：有人伪造了账册。';
+  for (const scope of ['public','char','all']) {
+    const {system}=buildExtraContext(story,{...opts,scope});
+    assert.match(system,/常穿蓝外套/); assert.match(system,/齐肩短发/);
+    for (const detail of ['红章藏在阁楼','第二把钥匙','伪造了账册']) assert.equal(system.includes(detail),scope==='all');
+    assert.equal(system.includes('甲知道停电原因'),scope!=='public');
+    assert.equal(system.includes('乙独自知道戒指秘密'),scope==='all');
+    assert.ok(!system.includes('第十一章才交往'));
+  }
+});

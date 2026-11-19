@@ -5,13 +5,13 @@ import { el, uid, toast, menu, promptText, sheet, saveFile, autoGrow, insertAtCu
 import { resolveConnection, getConnections, connLabel, getPrefs, go, getModules, setCurrentStory, getGlobalMemo, watchStory } from '../state.js';
 import { streamWithRetry, ApiError } from '../api.js';
 import { cancelRelayJob } from '../relay.js';
-import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, splitNames, latestCheckpoint } from '../prompt.js';
+import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, selectExtras, splitNames, latestCheckpoint } from '../prompt.js';
 import { migrateCheckpoints } from '../structured-memory.js';
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { archiveConn, DEFAULT_EVERY } from './memory.js';
 import { parseReply, paragraphs } from '../parse.js';
 import { stripReasoning } from '../reasoning.js';
-import { CHOICE_LABELS, expandOptionInput, choiceInput, toggleChoice } from '../personal.js';
+import { OPTION_GUIDE } from '../personal.js';
 import { inlineText } from '../inline.js';
 import { openExportDialog } from '../exporter.js';
 import { normalizeUsage, computeCost, fmtMoney, fmtTokens, recordUsage, getMonthSpend, getBudget, hasPrice, priceMode, CUR, getUsageLog } from '../cost.js';
@@ -40,7 +40,7 @@ export async function render(root, { id }) {
     globalMemo: await getGlobalMemo(),
     archiving: null,   // 后台整理前情 { ctrl, text }
     archiveError: null,
-    choiceSource: null,
+    sending: false,
   };
   story.manualOn = story.manualOn || {};
   const manualMods = () => [...st.modules, ...(story.localModules || [])].filter((m) => m.mode === 'manual' && story.modules?.[m.id]);
@@ -80,7 +80,7 @@ export async function render(root, { id }) {
   const scroller = el('div', { class: 'scroll play-scroll' }, feed);
   const ta = el('textarea', { rows: '1', enterkeyhint: 'enter' });
   const sendBtn = el('button', { class: 'send', onclick: () => onSend() });
-  const chipQuote = el('button', { class: 'bracket-btn', 'aria-label': '插入动作或心理括号', onmousedown: (e) => e.preventDefault(), onclick: () => insertAtCursor(ta, '（', '）') }, '（ ）');
+  const chipQuote = el('button', { class: 'bracket-btn', 'aria-label': '插入台词引号', onmousedown: (e) => e.preventDefault(), onclick: () => insertAtCursor(ta, '“', '”') }, '“ ”');
   const chipDanmu = el('button', { class: 'chip', role: 'switch', 'aria-label': '弹幕', onclick: async () => {
     const before = story.danmu;
     chipDanmu.disabled = true;
@@ -101,14 +101,6 @@ export async function render(root, { id }) {
     el('div', { class: 'inrow' }, el('div', { class: 'input-shell' }, ta, chipQuote), sendBtn)
   );
   const fit = autoGrow(ta);
-  const syncChoices = () => {
-    const selected = st.ooc ? [] : choiceInput(ta.value).labels;
-    feed.querySelectorAll('.options button[data-choice]').forEach((button) => {
-      const on = selected.includes(button.dataset.choice);
-      button.classList.toggle('selected', on); button.setAttribute('aria-pressed', String(on));
-    });
-  };
-  ta.addEventListener('input', syncChoices);
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSend(); } });
 
   root.append(el('div', { class: 'view' },
@@ -157,7 +149,7 @@ export async function render(root, { id }) {
         el('button', { 'aria-label': '关掉情境', onclick: () => { story.manualOn[m.id] = false; saveStory(); updateComposer(); } }, '✕'))),
     ].filter(Boolean));
     ta.classList.toggle('ooc', st.ooc);
-    ta.placeholder = '自由输入…';
+    ta.placeholder = !started ? '写下开场…' : st.ooc ? '输入场外消息…' : '动作或心理，台词加“引号”';
     chipCont.style.display = started ? '' : 'none';
     chipCont.disabled = busy;
     chipCont.style.opacity = busy ? .45 : 1;
@@ -256,19 +248,22 @@ export async function render(root, { id }) {
       }
       if (isLast && !live && !picking && story.options !== false && p.options.length) {
         const box = el('div', { class: 'options' });
-        p.options.slice(0, CHOICE_LABELS.length).forEach((o, i) => box.append(el('button', {
-          'data-choice': CHOICE_LABELS[i], 'aria-pressed': String(choiceInput(ta.value).labels.includes(CHOICE_LABELS[i])),
-          class: choiceInput(ta.value).labels.includes(CHOICE_LABELS[i]) ? 'selected' : '',
-          onclick: () => { st.ooc = false; st.choiceSource = n.id; ta.value = toggleChoice(ta.value, CHOICE_LABELS[i]); fit(); updateComposer(); syncChoices(); },
-        }, el('span', { class: 'k', text: CHOICE_LABELS[i] }), o)));
+        p.options.forEach((option, index) => box.append(el('button', {
+          onclick: () => {
+            st.ooc = false;
+            ta.value += (ta.value && !ta.value.endsWith('\n') ? '\n' : '') + option;
+            fit();
+            updateComposer();
+          },
+        }, el('span', { class: 'k', text: optionLabel(index) }), option)));
         g.append(box);
       }
-      // 模型没写选项（或格式认不出）：一键补四个，只发这一章，花费很小
+      // 模型没写选项（或格式认不出）：一键补选项，只发这一章，花费很小
       if (isLast && !live && !picking && !p.options.length && story.options !== false && n.kind !== 'ooc' && n.text?.trim() && n.status !== 'partial') {
         g.append(el('div', { class: 'no-opts' },
           st.addingOpts === n.id
             ? el('span', { class: 'thinking', text: '正在补选项' })
-            : el('button', { class: 'btn small ghost', onclick: () => addOptions(n) }, '这一章没写选项 · 补四个')));
+            : el('button', { class: 'btn small ghost', onclick: () => addOptions(n) }, '这一章没写选项 · 补选项')));
       }
       wrap.append(g);
     }
@@ -284,6 +279,10 @@ export async function render(root, { id }) {
     return wrap;
   }
 
+  function optionLabel(index) {
+    return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+  }
+
   async function addOptions(n) {
     if (st.streaming || st.addingOpts) return;
     const conn = await resolveConnection(story);
@@ -291,18 +290,20 @@ export async function render(root, { id }) {
     st.addingOpts = n.id;
     renderFeed({ keepScroll: true });
     const p = parseReply(n.text);
-    const system = '你在主持一场文字互动小说，玩家扮演“你”。' + (story.world?.trim() ? '\n【世界与角色设定（节选）】\n' + story.world.trim().slice(0, 2000) : '');
+    const { sentModules } = selectExtras(story, pathTo(n.id), st.modules);
+    const countRules = [story.rules, story.world, st.globalMemo, ...sentModules.map((m) => m.text)]
+      .filter(Boolean).flatMap((text) => text.split('\n')).filter((line) => /选项|参考行动|选择支/.test(line));
+    const system = ['你在主持一场文字互动小说，玩家扮演“你”。', story.world?.slice(0, 2000), ...new Set(countRules)].filter(Boolean).join('\n');
     const user = '下面是刚写完的一章：\n\n' + (p.title ? '# ' + p.title + '\n' : '') + p.body +
-      '\n\n请只为这一章的结尾写 4 个参考选项，格式：\n【选项】\nA. ……\nB. ……\nC. ……\nD. ……\n' +
-      '要求：四个方向明显不同的具体行动（可以带一个马上会发生的事件），写行动不写结果，不泄露隐藏信息。只输出这五行。';
+      '\n\n请只为这一章的结尾补参考选项。\n' + OPTION_GUIDE + '\n只输出选项标题和各项。';
     try {
       const r = await streamWithRetry(conn, { system, messages: [{ role: 'user', content: user }], maxTokens: 3000 });
       const u = normalizeUsage(r.usage, { inChars: system.length + user.length, outChars: r.text.length });
       recordUsage({ kind: '补选项', storyId: story.id, model: conn.model, usage: u, cost: computeCost(u, conn) });
       let opts = parseReply(r.text).options;
-      if (!opts.length) opts = r.text.split('\n').map((l) => l.trim()).filter((l) => l && !/选\s*项/.test(l)).slice(0, CHOICE_LABELS.length);
+      if (!opts.length) opts = r.text.split('\n').map((l) => l.trim()).filter((l) => l && !/选\s*项/.test(l));
       if (!opts.length) { toast('没补上，可以再试一次'); return; }
-      n.text = n.text.trimEnd() + '\n\n【选项】\n' + opts.slice(0, CHOICE_LABELS.length).map((o, i) => `${CHOICE_LABELS[i]}. ${o}`).join('\n');
+      n.text = n.text.trimEnd() + '\n\n【选项】\n' + opts.map((o, i) => `${optionLabel(i)}. ${o}`).join('\n');
       await db.put('nodes', n).catch(() => {});
     } catch (e) {
       if (e?.kind !== 'aborted') toast('补选项失败：' + (e?.message || e), 3500);
@@ -353,9 +354,6 @@ export async function render(root, { id }) {
   }
 
   function renderFeed({ keepScroll = false, focusId = null } = {}) {
-    if (st.choiceSource && st.choiceSource !== story.headId) {
-      ta.value = choiceInput(ta.value).extra; st.choiceSource = null; fit();
-    }
     const stick = !focusId && (!keepScroll || nearBottom());
     const path = headPath();
     feed.replaceChildren();
@@ -416,19 +414,24 @@ export async function render(root, { id }) {
     if (st.streaming) { stop(); return; }
     const started = headPath().length > 0;
     if (!started) { await send('start', ta.value); return; }
-    const head = nodes.get(story.headId);
-    const options = story.options !== false && head?.role === 'assistant' && !isOoc(head) ? parseReply(head.text || '').options : [];
-    const text = st.ooc ? ta.value : expandOptionInput(ta.value, options);
+    const text = ta.value;
     if (!text.trim()) { toast(st.ooc ? '写点要说的话' : '写点什么，或者点“继续”'); return; }
     await send(st.ooc ? 'ooc' : 'play', text);
   }
 
-  async function send(kind, text, { parentId, director } = {}) {
-    if (st.streaming) return;
+  async function send(kind, text, options = {}) {
+    if (st.sending || jobs || st.streaming) return;
+    st.sending = true;
+    try { await saveAndGenerate(kind, text, options); }
+    finally { st.sending = false; }
+  }
+
+  async function saveAndGenerate(kind, text, { parentId, director, inputFormat = 'quoted' }) {
     if (headPath().some((n) => n.relayJob)) { toast('先接回后台生成，或在章节下方停止它'); return; }
     const head = story.headId ? nodes.get(story.headId) : null;
     const u = {
       id: uid(), storyId: story.id, parentId: parentId !== undefined ? parentId : (head ? head.id : null), role: 'user', kind,
+      ...(kind === 'play' && inputFormat ? { inputFormat } : {}),
       text: String(text || '').trim(), director: (director ?? st.director).trim(), createdAt: Date.now(),
     };
     touch(u);
@@ -844,7 +847,7 @@ export async function render(root, { id }) {
       s.close();
       if (hasReply) {
         const later = chapterCount(pathTo(leafOf(n).id)) - chapterCount(pathTo(n.parentId));
-        await send(n.kind, text, { parentId: n.parentId ?? null, director: n.director || '' });
+        await send(n.kind, text, { parentId: n.parentId ?? null, director: n.director || '', inputFormat: n.inputFormat || null });
         if (later > 0) toast(`原来的 ${later} 章留在旧分支里，可以左右切换`);
       } else {
         n.text = text; touch(n);

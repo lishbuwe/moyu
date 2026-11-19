@@ -14,7 +14,6 @@ globalThis.confirm = () => true;
 dom.window.HTMLElement.prototype.scrollIntoView = function() {};
 const style = document.createElement('style'); style.textContent = await readFile(new URL('../css/app.css', import.meta.url), 'utf8'); document.head.append(style);
 const { db, exportAll, importData } = await import('../js/db.js');
-const { choiceInput, toggleChoice, expandOptionInput } = await import('../js/personal.js');
 const { readAttachment, attachmentBytes, selectedImport } = await import('../js/attachments.js');
 const { chatMessages, newDiscussion, saveDiscussion, getDiscussion, exportDiscussions } = await import('../js/discuss.js');
 const { markdownPack, importMarkdownPack, groupModules, deleteModules, undoModuleDelete } = await import('../js/rules.js');
@@ -51,29 +50,40 @@ beforeEach(async () => {
     return new Response(JSON.stringify({choices:[{message:{content:answer},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:20}}),{headers:{'Content-Type':'application/json'}}); };
 });
 
-test('多选以点选顺序显示加号，取消或改写后保留补充，发送展开所有全文', () => {
-  let input=toggleChoice('（抬眼）你好。','B'); input=toggleChoice(input,'A');
-  assert.equal(input,'B+A （抬眼）你好。'); assert.equal(toggleChoice(input,'B'),'A （抬眼）你好。');
-  assert.deepEqual(choiceInput('AB（继续）').labels,['A','B']);
-  assert.equal(expandOptionInput(input,['查看地图','收好信件']),'（收好信件）\n（查看地图）\n（抬眼）你好。');
-  assert.equal(expandOptionInput('A+',['查看地图']),'A+');
-  assert.equal(choiceInput('Actually, wait.').labels.length,0);
-});
-
-test('游玩真实按钮多选与发送，输入栏采用居中对齐', async () => {
+test('选项追加全文，保留草稿与修改，双击只保存一次', async () => {
   const {story}=await seedStory(); const dispose=await play.render(root,{id:story.id});
   try {
-    const buttons=root.querySelectorAll('.options button'); buttons[0].click(); buttons[1].click();
-    const ta=root.querySelector('textarea'); assert.equal(ta.value,'A+B');
-    assert.notEqual(document.activeElement,ta,'点选多选不自动聚焦输入框或唤起键盘');
-    assert.equal(buttons[0].getAttribute('aria-pressed'),'true');
-    ta.value+='（把信放进包里）';ta.dispatchEvent(new Event('input'));
-    assert.equal(getComputedStyle(root.querySelector('.input-shell')).alignItems,'center');
-    assert.equal(getComputedStyle(root.querySelector('.inrow')).alignItems,'center');
-    button('发送').click(); await wait(()=>requests.length===1&&!dispose.busy());
-    const sent=requests[0].body.messages.at(-1).content;
-    assert.ok(sent.includes('（查看地图）\n（收好信件）\n（把信放进包里）'));
+    const ta=root.querySelector('textarea'), buttons=root.querySelectorAll('.options button');
+    ta.value='B超报告在桌上。'; buttons[0].click(); buttons[1].click();
+    assert.equal(ta.value,'B超报告在桌上。\n查看地图\n收好信件');
+    assert.notEqual(document.activeElement,ta);
+    ta.value=ta.value.replace('收好信件','收好报告。');
+    ta.setSelectionRange(ta.value.length,ta.value.length);
+    root.querySelector('[aria-label="插入台词引号"]').click();
+    ta.setRangeText('明天见。',ta.selectionStart,ta.selectionEnd,'end');
+    const action='B超报告在桌上。\n查看地图\n收好报告。“明天见。”';
+    assert.equal(ta.value, action);
+    const send=button('发送'); send.click(); send.click();
+    await wait(()=>requests.length===1&&!dispose.busy());
+    assert.ok(requests[0].body.messages.at(-1).content.startsWith(action));
+    const saved=(await db.byStory(story.id)).filter(n=>n.kind==='play'&&n.role==='user');
+    assert.equal(saved.length,1); assert.equal(saved[0].text,action); assert.equal(saved[0].inputFormat,'quoted');
     assert.equal(ta.value,'');
+  } finally { dispose(); }
+});
+
+test('补选项使用单局数量约定，并保存模型返回的各项', async () => {
+  const { story,nodes }=await seedStory();
+  story.rules='每章末给两个参考选项。';
+  nodes[1].text='# 门口来信\n她撑开伞。';
+  await db.put('stories',story); await db.put('nodes',nodes[1]);
+  const dispose=await play.render(root,{id:story.id});
+  try {
+    responses.push('【选项】\nA. 留下\nB. 出门');
+    button('这一章没写选项 · 补选项').click();
+    await wait(()=>root.querySelectorAll('.options button').length===2);
+    assert.match(requests[0].body.messages[0].content,/每章末给两个参考选项/);
+    assert.doesNotMatch(requests[0].body.messages.at(-1).content,/四个|五行/);
   } finally { dispose(); }
 });
 
@@ -728,7 +738,7 @@ async function openExtraForm(story,template) {
 }
 
 test('聊天与报告无子类菜单；记录主人、报告对象和报告人各自保存，选中角色卡进入上下文',async()=>{
-  const {story}=await seedStory();story.cards=[{id:'c1',name:'许秋',initial:'出版社编辑',personality:'讲话直截了当'}];await db.put('stories',story);
+  const {story}=await seedStory();story.cards=[{id:'c1',name:'许秋',initial:'出版社编辑',publicProfile:'出版社编辑',personality:'讲话直截了当'}];await db.put('stories',story);
   const chat=await openExtraForm(story,'playbook-chat');
   assert.equal([...chat.querySelectorAll('details')].find(d=>d.firstElementChild.textContent.includes('子类')).hidden,true);
   const owner=chat.querySelector('[aria-label="看谁的手机"]');
@@ -808,7 +818,7 @@ test('保存过的玩法模板只补一次新版要求，用户改写的内容�
 
 test('番外列表停留期间新增角色后，打开表单仍能直接选择最新全部角色卡',async()=>{
   const {story}=await seedStory();await extras.render(root,{id:story.id});
-  const updated={...story,cards:[{id:'first',name:'郁黎安',initial:'建筑师，克制'},{id:'second',name:'许秋',initial:'编辑，讲话直接'}]};
+  const updated={...story,cards:[{id:'first',name:'郁黎安',publicProfile:'建筑师，克制'},{id:'second',name:'许秋',initial:'编辑，讲话直接'}]};
   await db.put('stories',updated);
   button('✦ 写一篇番外').click();await wait(()=>!!document.querySelector('[role=dialog] select'));
   const dialog=document.querySelector('[role=dialog]'),type=dialog.querySelector('select');
@@ -831,7 +841,7 @@ test('番外列表停留期间新增角色后，打开表单仍能直接选择�
 test('同人选择的是主角的关系对象，报告作者独立，不能把对方当主角或叙述者',async()=>{
   const {buildExtraContext,builtinTemplates}=await import('../js/fanwai.js');
   const {castText}=await import('../js/extra-options.js');
-  const {story}=await seedStory();story.cards=[{id:'partner',name:'郁黎安',initial:'建筑师，克制'},{id:'writer',name:'许秋',initial:'编辑，讲话直接'}];
+  const {story}=await seedStory();story.cards=[{id:'partner',name:'郁黎安',publicProfile:'建筑师，克制'},{id:'writer',name:'许秋',initial:'编辑，讲话直接'}];
   const protagonist={kind:'self',name:'林舟'},target={kind:'character',cardId:'partner',name:'郁黎安'},reporter={kind:'character',cardId:'writer',name:'许秋'};
   const ficCast={version:3,protagonist,partner:target};
   const ctx=buildExtraContext(story,{chapters:[],anchorNo:0,scope:'char',template:builtinTemplates().find(t=>t.layout==='fic'),cast:ficCast});

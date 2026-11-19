@@ -19,8 +19,8 @@ function pathTo(nodes, nodeId) {
 }
 const lines = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean);
 const CARD_FIELDS = {
-  npc: ['name', 'aliases', 'initial', 'base', 'voice', 'forbid', 'arc', 'now', 'relation', 'core'],
-  protagonist: ['name', 'gender', 'note'],
+  npc: ['name', 'aliases', 'publicProfile', 'initial', 'base', 'voice', 'forbid', 'arc', 'now', 'relation', 'core'],
+  protagonist: ['name', 'gender', 'note', 'publicProfile'],
 };
 const CARD_APP = 'moyu-character';
 const nameKey = (name) => (name || '').trim().toLowerCase();
@@ -242,16 +242,19 @@ export async function render(root, { id }) {
     for (const g of ['', '女', '男', '其他']) gender.append(el('option', { value: g }, g || '不指定'));
     gender.value = p.gender || '';
     const note = el('textarea', { class: 'tall', placeholder: '身份、外貌、性格、别人怎么称呼你……第三人称番外会照这个写' }); note.value = p.note || '';
+    const profile = el('textarea', { placeholder: '从开局起旁人就能观察到的外貌、说话习惯等' });
+    profile.value = p.publicProfile || '';
     const genderHint = el('div', { class: 'hint', text: '正文、番外、整理前情、讨论每次都会带上这张卡。' });
     const aiStatus = el('div', { class: 'hint' });
     const aiBtn = el('button', { class: 'btn small', onclick: () => aiFill() }, '从设定补充初始资料');
     s.body.append(
       el('div', { class: 'row', style: { margin: '0 0 10px' } }, aiBtn,
-        el('button', { class: 'btn small', onclick: () => exportCard('protagonist', { name: name.value, gender: gender.value, note: note.value }) }, '导出主角卡')), aiStatus,
+        el('button', { class: 'btn small', onclick: () => exportCard('protagonist', { name: name.value, gender: gender.value, note: note.value, publicProfile: profile.value }) }, '导出主角卡')), aiStatus,
       incoming ? el('div', { class: 'hint', text: '保存后应用到这部故事的主角初始资料。' }) : null,
       el('div', { class: 'field' }, el('label', { text: '名字' }), name),
       el('div', { class: 'field' }, el('label', { text: '性别' }), gender, genderHint),
-      el('div', { class: 'field' }, el('label', { text: '其他' }), note));
+      el('div', { class: 'field' }, el('label', { text: '其他' }), note),
+      el('div', { class: 'field' }, el('label', { text: '公开资料（可选）' }), profile));
 
     // AI 写草稿：名字、其他直接填进框里（你可以改）；性别只给建议，由你自己选
     async function aiFill() {
@@ -294,7 +297,7 @@ export async function render(root, { id }) {
         try {
           const fresh = await db.get('stories', id);
           if (!fresh) throw new Error('找不到这个故事');
-          fresh.protagonist = { ...fresh.protagonist, name: name.value.trim(), gender: gender.value, note: note.value.trim() };
+          fresh.protagonist = { ...fresh.protagonist, name: name.value.trim(), gender: gender.value, note: note.value.trim(), publicProfile: profile.value.trim() };
           fresh.updatedAt = Date.now();
           await db.put('stories', fresh);
           story.protagonist = fresh.protagonist;
@@ -376,6 +379,7 @@ export async function render(root, { id }) {
       field('name', '名字', { ph: '例：沈澜' }),
       field('aliases', '别名', { ph: '用顿号分开，例：沈总、阿澜', hint: '剧情里出现名字或别名，就算“被提到”。' }),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '常驻', el('small', { text: '主要角色打开：每轮都发。配角关掉：被提到才发，省钱也省注意力。' })), el('label', { class: 'switch' }, core, el('span'))),
+      field('publicProfile', '公开资料（可选）', { tall: true, ph: '从开局起旁人就能观察到的外貌、说话习惯等。限知番外也能使用。' }),
       field('initial', '一、初始设定', { tall: true, lock: true, ph: '开局给的设定：身份、外貌、和主角的起点关系、登场时的态度' }),
       field('base', '二、底色', { tall: true, ph: '遇事反应：被夸、被拒、吃醋、被冒犯时具体会做什么；说话的样子；身份与配套（谁伺候他、钱怎么花、什么事不会亲自动手）' }),
       field('voice', '原话锚（一行一句）', { tall: true, lock: true, ph: '他说过的、最像他的几句话。只用来校准口气，模型不会照抄。' }),

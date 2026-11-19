@@ -3,18 +3,23 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { buildContext, formatContract, inputBudgetChars } from '../js/prompt.js';
-import { optionInput, expandOptionInput } from '../js/personal.js';
+import { selectExtras } from '../js/prompt.js';
 import { APP_VERSION } from '../js/util.js';
 
-test('导入旧规则后仍按个人输入约定解释，保留故事规则，正文要求四选项', () => {
-  const oldRule = '玩家输入里，“”内是台词，引号外是动作。';
-  const ctx = buildContext({ rules: oldRule, danmu: false }, [{ role: 'user', kind: 'play', text: '（收好信）我跟你走。' }]);
-  assert.ok(ctx.system.includes(oldRule));
-  assert.ok(ctx.system.includes('括号外是主角说出口的台词，不需要加引号'));
-  assert.ok(ctx.system.indexOf('【玩家输入约定】') > ctx.system.indexOf(oldRule));
-  assert.ok(ctx.system.includes('D. ……'));
-  assert.ok(ctx.messages[0].content.includes('A/B/C/D 四行'));
-  assert.ok(!ctx.system.includes('【弹幕】'));
+test('旧输入沿用旧约定，新输入原样发送，本局的选项数优先', () => {
+  const rules = '旧设定：括号外是台词。每轮给两个参考选项。';
+  const path = [
+    { role: 'user', kind: 'play', text: '（收好信）我跟你走。' },
+    { role: 'assistant', kind: 'play', text: '# 出门\n她撑开伞。' },
+    { role: 'user', kind: 'play', inputFormat: 'quoted', text: '收好伞。“一起走吧。”' },
+  ];
+  const ctx = buildContext({ rules, danmu: false }, path);
+  assert.ok(ctx.system.includes(rules));
+  assert.match(ctx.system, /只有双引号/);
+  assert.match(ctx.messages[0].content, /^【旧版输入】\n（收好信）我跟你走。/);
+  assert.match(ctx.messages.at(-1).content, /^收好伞。“一起走吧。”/);
+  assert.match(ctx.system, /按本局对参考选项数量的约定/);
+  assert.doesNotMatch(ctx.system + ctx.messages.at(-1).content, /A\/B\/C\/D|四行|4个方向/);
   assert.ok(!formatContract({ options: false }).includes('【选项】'));
 });
 
@@ -35,25 +40,19 @@ test('旧连接使用默认输入预算；长档案与最近剧情不会被静�
   assert.ok(longMemory.info.systemChars > 6000, '固定资料过长时不得悄悄删掉设定');
 });
 
-test('选择行动不误作台词，已有括号保持原样', () => {
-  assert.equal(optionInput('收好信'), '（收好信）');
-  assert.equal(optionInput('（收好信）'), '（收好信）');
-  assert.equal(optionInput('(收好信)'), '(收好信)');
-});
-
-test('选项字母在发送时展开全文，保留补充、改选、多选和自由输入', () => {
-  const options = ['查看地图', '（留在原地）', '询问路人', '收好信'];
-  assert.equal(expandOptionInput('A', options), '（查看地图）');
-  assert.equal(expandOptionInput('A（把信收好）我跟你去。', options), '（查看地图）\n（把信收好）我跟你去。');
-  assert.equal(expandOptionInput('B', options), '（留在原地）');
-  assert.equal(expandOptionInput('AB（先看看）', options), '（查看地图）\n（留在原地）\n（先看看）');
-  assert.equal(expandOptionInput('AA', options), '（查看地图）');
-  assert.equal(expandOptionInput('d\n我跟你去。', options), '（收好信）\n我跟你去。');
-  assert.equal(expandOptionInput('（只说自己的行动）', options), '（只说自己的行动）');
-  assert.equal(expandOptionInput('Actually, wait.', options), 'Actually, wait.');
-  assert.equal(expandOptionInput('D', options.slice(0, 3)), 'D');
-  assert.equal(expandOptionInput('A', []), 'A');
-  assert.equal(expandOptionInput('', options), '');
+test('弹幕、未选选项和出戏回复不触发角色卡和关键词，选中的行动正常触发', () => {
+  const story = { cards: ['甲方','乙方','丙方'].map(name=>({name})), modules: {m:true} };
+  const modules = [{id:'m', mode:'keyword', keywords:'阁楼', text:'阁楼规则'}];
+  const path = [
+    {role:'assistant',kind:'play',text:'# 门口\n甲方站在门口。\n【弹幕】\n读者：丙方来了？\n【选项】\nA. 留下\nB. 去阁楼找乙方'},
+    {role:'assistant',kind:'ooc',text:'下次再聊阁楼和丙方。'},
+    {role:'user',kind:'play',text:'留下。'},
+  ];
+  assert.deepEqual(selectExtras(story,path,modules).present.map(c=>c.name), ['甲方']);
+  assert.equal(selectExtras(story,path,modules).sentModules.length, 0);
+  path.at(-1).text = '去阁楼找乙方。';
+  assert.deepEqual(selectExtras(story,path,modules).present.map(c=>c.name), ['甲方','乙方']);
+  assert.equal(selectExtras(story,path,modules).sentModules.length, 1);
 });
 
 test('主网页升级只清理自己的旧缓存，离线查找不读取其他应用缓存', async () => {

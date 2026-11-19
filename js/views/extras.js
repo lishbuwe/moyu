@@ -185,7 +185,7 @@ async function newExtra(story, nodes) {
     el('div', { class: 'field' }, el('label', { text: '带上时间点前最近几章的原文' }), recent, el('div', { class: 'hint', text: '让模型熟悉人物口吻和最近发生的事。更早的剧情可以在下面单独指定。' })),
     chapters.length ? el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer' }, text: '额外指定章节作素材（可选）' }), pinBox) : null,
     el('div', { class: 'field', style: { marginTop: '12px' } }, el('label', { text: '知情范围' }), scopeSel,
-      el('div', { class: 'hint', text: '全知会带最近原文；公开或角色视角只带明确标注其知情范围的记忆，未知知情者的原文会保守排除。' })),
+      el('div', { class: 'hint', text: '全知会带最近原文；公开或角色视角只带明确标注其知情范围的记忆以及角色卡中的公开资料。' })),
     el('div', { class: 'field' }, el('label', { text: '篇幅' }), lenSeg, lenCustom, el('div', { class: 'hint', text: '很长的番外模型可能一次写不完，写完后点“接着写”可以续上。' })),
     enabledAlways.length ? el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '带上这个故事的规则模块', el('small', { text: enabledAlways.map((m) => m.name).join('、') + '（不带正文的游玩规则）' })), withMods.el) : null,
   ].filter(Boolean));
@@ -359,7 +359,7 @@ async function renderReader(root, story, nodes, extraId) {
     return buildExtraContext(story, {
       chapters, anchorNo: chapters.length, recentN: x.recentN, pinned: x.pinned || [],
       template: { name: x.tplName, text: x.tplText, scope: x.tplScope, layout:x.layout }, variant:x.variant, cast:x.cast, request, scope: x.scope, pov: x.pov,
-      length: x.length, modules, base, path, historyPath, budgetChars,
+      length: x.length, modules, base, path, historyPath, atLiveHead: x.anchorId === story.headId, budgetChars,
     });
   }
 
