@@ -45,7 +45,7 @@ function indexChapter(chapter, body) {
 
 export function recallPassages(chapters, scene, body, { query, context, people, changedScene, recentN, sceneBoundary }) {
   if (chapters.length <= recentN) return [];
-  const older = chapters.slice(0, -recentN);
+  const older = recentN ? chapters.slice(0, -recentN) : chapters;
   const sources = new Map(older.map((chapter) => [chapter.id, chapter]));
   const active = new Map();
   const lastNo = chapters.at(-1).no;

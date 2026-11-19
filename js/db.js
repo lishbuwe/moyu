@@ -103,6 +103,7 @@ export const db = {
     await run('nodes', 'readwrite', (os) => { for (const n of nodes) os.delete(n.id); });
     const extras = await db.extrasOf(storyId);
     if (extras.length) await run('extras', 'readwrite', (os) => { for (const x of extras) os.delete(x.id); });
+    await db.del('kv', 'extraEvidence.' + storyId);
     await db.del('stories', storyId);
   },
   async kvGet(key, fallback) {

@@ -239,7 +239,7 @@ async function renderReader(root, story, nodes, extraId) {
     v.error = { ...v.error, message: '旧版番外任务无法接回', hint: '这次任务没有保存后台任务编号，无法取回原任务。已有文字保留，可续写；没有内容时需重新生成一个版本。更新后的新任务支持自动接回。' };
   }
 
-  const st = { streaming: null, lastCtx: null, frame: 0, raw: null };
+  const st = { streaming: null, frame: 0, raw: null };
   let destroyed = false;
   const titleEl = el('div', { class: 'title' });
   const apiButton = el('button',{class:'btn small extra-api-btn',onclick:()=>chooseApi(),'aria-label':'选择番外 API'},'番外 API');
@@ -356,11 +356,17 @@ async function renderReader(root, story, nodes, extraId) {
     const head = pathTo(nodes, story.headId);
     const historyPath = path.length && head.some((n) => n.id === x.anchorId) ? head : path;
     const chapters = chaptersOf(path);
-    return buildExtraContext(story, {
+    const cacheKey = 'extraEvidence.' + story.id;
+    const evidenceCache = await db.kvGet(cacheKey, null) || {};
+    const before = JSON.stringify(evidenceCache);
+    const ctx = buildExtraContext(story, {
+      evidenceCache,
       chapters, anchorNo: chapters.length, recentN: x.recentN, pinned: x.pinned || [],
       template: { name: x.tplName, text: x.tplText, scope: x.tplScope, layout:x.layout }, variant:x.variant, cast:x.cast, request, scope: x.scope, pov: x.pov,
       length: x.length, modules, base, path, historyPath, atLiveHead: x.anchorId === story.headId, budgetChars,
     });
+    if (before !== JSON.stringify(evidenceCache)) await db.kvSet(cacheKey, evidenceCache).catch(() => {});
+    return ctx;
   }
 
   let jobs = 0;
@@ -417,8 +423,18 @@ async function renderReader(root, story, nodes, extraId) {
     const conn = resuming ? saved?.connection : await extraConnection(v?.connectionId || x.connectionId);
     if (!conn) { toast('这篇番外的 API 未选择或已被删除，请点右上角选择番外 API'); return; }
     const ctx = resuming && v?.context ? v.context : await buildCtx(v?.request ?? x.request, inputBudgetChars(conn));
+    if (!resuming && (x.anchorNo > 0 || x.anchorId) && !ctx.info.hasCanon) {
+      const action = await menu('这个时间点没有找到可用的剧情素材', [
+        { key: 'back', label: '返回番外册', hint: '可重选视角或时间点。尚未请求模型。' },
+        { key: 'write', label: '仍按设定创作', hint: '本次只有设定和你的要求可供参考。' },
+      ]);
+      if (destroyed || action !== 'write') {
+        delete x.pending; await save();
+        if (!destroyed && action === 'back') go('extra/' + encodeURIComponent(story.id));
+        return;
+      }
+    }
     if (!resuming && v) v.context = ctx; // 旧番外重写、续写也重建时间点素材。
-    st.lastCtx = ctx;
     let base = stripReasoning(saved?.base,{streaming:true});
     const continuation = resuming ? saved.mode === 'continue' : mode === 'continue';
     const previousText = stripReasoning(v?.text,{streaming:true});
@@ -527,10 +543,10 @@ async function renderReader(root, story, nodes, extraId) {
       s.foot.append(el('button', { class: 'btn ghost', onclick: () => s.close() }, '取消'),
         el('button', { class: 'btn primary', onclick: async () => { v.text = area.value; v.edited = true; await save(); s.close(); toast('已修改'); draw(); } }, '保存'));
     } else if (k === 'ctx') {
-      const ctx = st.lastCtx || await buildCtx();
-      const s = sheet({ title: '这篇番外发给模型的内容' });
+      const ctx = v?.context || await buildCtx(v?.request ?? x.request);
+      const s = sheet({ title: v?.context ? '这个版本保存的请求素材' : '当前素材预览' });
       s.body.append(
-        el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } }, `共约 ${ctx.info.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(ctx.info.totalChars).toLocaleString()} token）。正史素材：${ctx.info.chapters.length ? '第 ' + ctx.info.chapters.join('、') + ' 章' : '无'}；角色卡：${ctx.info.cards.join('、') || '无'}。`),
+        el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } }, `共约 ${ctx.info.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(ctx.info.totalChars).toLocaleString()} token）。携带原文章节：${ctx.info.chapters.length ? '第 ' + ctx.info.chapters.join('、') + ' 章' : '无'}；角色卡：${ctx.info.cards.join('、') || '无'}。`),
         ...ctx.info.parts.map((p) => el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer', fontSize: '14px' }, text: `${p.label} · ${p.chars.toLocaleString()} 字` }), el('pre', { class: 'raw', text: p.text }))),
         el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer', fontSize: '14px' }, text: '最后的要求' }), el('pre', { class: 'raw', text: ctx.messages[0].content })));
       s.foot.append(el('button', { class: 'btn primary', onclick: () => s.close() }, '关闭'));

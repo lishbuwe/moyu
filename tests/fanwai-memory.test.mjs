@@ -80,3 +80,35 @@ test('公开和角色视角隔离混写的卡片，全知在同一时间点保�
     assert.ok(!system.includes('第十一章才交往'));
   }
 });
+
+test('旧档无知情标记时从同一分支按出处取材，修改原文后丢弃旧缓存', () => {
+  const {story, opts} = fixture();
+  const cp = { upTo: 2, summaries: [{from: 1, to: 2, text: '晚会上公开宣布画展开幕。'}] };
+  ensureStructured(cp, 'a2');
+  const chapters = [
+    {id:'a1', no:1, text:'甲对顾律说：“暗号是栀子。”\n乙亲耳听到真实底价。'},
+    {id:'a2', no:2, text:'主持人当众宣布明日闭馆。\n甲想：“明天再说。晚会上公开宣布假消息。”'},
+    {id:'a3', no:3, text:'主持人公开宣布未来结果。'},
+  ];
+  const cache = {};
+  const build = scope => buildExtraContext(story, {...opts, chapters, path:[], historyPath:[{checkpoint:cp}],
+    anchorNo:2, scope, pov:'顾律', evidenceCache:cache});
+  const pub = build('public');
+  assert.match(pub.system,/公开可见】晚会上公开宣布画展开幕/);
+  assert.match(pub.system,/明日闭馆/);
+  assert.doesNotMatch(pub.system,/栀子|真实底价|假消息|未来结果/);
+  assert.equal(pub.info.hasCanon,true);
+  const personal = build('char');
+  assert.match(personal.system,/仅顾律可用】甲对顾律说/);
+  assert.doesNotMatch(personal.system,/真实底价|假消息|未来结果/);
+  chapters[1].text = '主持人当众宣布推迟闭馆。';
+  assert.doesNotMatch(build('public').system,/明日闭馆/);
+});
+
+test('全知番外能够按要求从尚未整理的早期原文找回事件', () => {
+  const {story,opts} = fixture();
+  const chapters = opts.chapters.map(c => ({...c,text:c.no===3 ? '那天河边的玻璃风铃碎了。' : '走过车站。'}));
+  const ctx=buildExtraContext(story,{...opts,chapters,path:[],historyPath:[],scope:'all',request:'玻璃风铃',recentN:2});
+  assert.deepEqual(ctx.info.excerptChapters,[3]);
+  assert.match(ctx.system,/那天河边的玻璃风铃碎了/);
+});

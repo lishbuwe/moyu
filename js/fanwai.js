@@ -5,6 +5,8 @@ import { db } from './db.js';
 import { uid } from './util.js';
 import { forContext, parseReply } from './parse.js';
 import { cardText, splitNames, protagonistText } from './prompt.js';
+import { recallPassages } from './recall.js';
+import { evidenceRecords } from './extra-evidence.js';
 import { layeredMemory, recordsAt } from './structured-memory.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
@@ -109,15 +111,37 @@ export function buildExtraContext(story, opts) {
   const rawAllowed = scope === 'all';
   const snapshotChapters = layout && rawAllowed ? upto.slice(-3) : [];
   // 知情范围不明的原文可能含有另一人的私密场景，严格视角下只使用带知情者的记忆。
+  const nodeById = new Map((opts.path || []).map(n => [n.id, n]));
+  const older = upto.filter(c => !recent.includes(c) && !pinnedSet.has(c.no) && !snapshotChapters.includes(c));
+  const passages = rawAllowed && older.length ? recallPassages(
+    older.map(c => ({ ...c, node: nodeById.get(c.id) || c })), [], c => c.text,
+    { query: request, context: upto.at(-1)?.title || '', people: castNames(opts.cast), changedScene: true, recentN: 0 }
+  ) : [];
   const picked = rawAllowed ? upto.filter((c) => pinnedSet.has(c.no) || recent.includes(c) || snapshotChapters.includes(c)) : [];
   const materialOf = (c) => `【第${c.no}章${c.title ? ' · ' + c.title : ''}】\n${c.said ? '（主角：' + c.said.trim() + '）\n' : ''}${c.text}`;
   const recentMaterial = picked.filter((c) => !pinnedSet.has(c.no)).map(materialOf).join('\n\n');
   const pinnedMaterial = picked.filter((c) => pinnedSet.has(c.no)).map(materialOf).join('\n\n');
   const material = [recentMaterial, pinnedMaterial].filter(Boolean).join('\n\n');
   const observer = layout === 'report' ? opts.cast?.reporter : layout === 'chat' ? opts.cast?.owner : null;
-  const chosenPov = pov || observer?.name || '';
-  const eligible = recordsAt(opts.historyPath || opts.path || [], anchorNo).filter((r) =>
-    scope === 'all' || (scope === 'public' ? r.knowers?.includes('公开') : r.knowers?.includes('公开') || (chosenPov && r.knowers?.includes(chosenPov))));
+  const readers = [pov || observer?.name || (!layout ? opts.cast?.owner?.name : '')];
+  if (scope === 'char' && layout === 'show') readers.push(story.protagonist?.name, ...(opts.cast?.companions || []).map(c => c.name));
+  if (scope === 'char' && !readers.some(Boolean) && layout !== 'fic') readers.push(story.protagonist?.name);
+  const history = recordsAt(opts.historyPath || opts.path || [], anchorNo);
+  const visible = r => scope === 'all' || r.knowers?.includes('公开') ||
+    (scope === 'char' && readers.some(name => name && r.knowers?.includes(name)));
+  let eligible = history.filter(visible);
+  if (!rawAllowed) {
+    const sources = [
+      ...history.filter(r => !r.knowers?.length).map(r => ({ id:r.id, from:r.sourceFrom, to:r.sourceTo, text:r.event })),
+      ...upto.map(c => ({ id:c.id, from:c.no, to:c.no, text:c.text, pinned:pinnedSet.has(c.no) })),
+    ];
+    const known = new Set(eligible.map(r => r.event));
+    for (const r of evidenceRecords(sources, [...readers, story.protagonist?.name, ...(story.cards || []).filter(c => !c.auto?.from || c.auto.from <= anchorNo).map(c => c.name)], opts.evidenceCache).filter(visible)) {
+      if (!known.has(r.event)) { eligible.push(r); known.add(r.event); }
+    }
+    eligible = eligible.map(r => ({ ...r, event: (r.knowers.includes('公开') ? '【公开可见】' :
+      '【仅' + r.knowers.filter(name => readers.includes(name)).join('、') + '可用】') + r.event }));
+  }
   const memory = layeredMemory({ upTo: anchorNo, records: eligible }, [request, pov, castNames(opts.cast).join(' '), ...upto.slice(-2).map((c) => c.title)].join(' '),
     { at: anchorNo, coreChars: 1800, stateChars: 700, retrieveChars: 3500 });
 
@@ -163,6 +187,8 @@ export function buildExtraContext(story, opts) {
   }
   add(`形式 · ${template?.name || '自定义'}`, '【这篇的形式与写法】\n' + (template?.text?.trim() || '按下面玩家的要求来写。'));
   add('知情范围', '【知情范围】\n' + scopeText);
+  if (!rawAllowed) add('分段知情范围', '公开帖子、评论、路人发言只能引用标注公开可见的事实。标注姓名的事实只供该人亲历、回忆或私聊时使用，其他人不能凭空得知。' +
+    (scope === 'char' && readers.filter(Boolean).length ? '本次有知情素材的视角范围：' + readers.filter(Boolean).join('、') + '。' : ''));
   for (const m of modules) add(`规则模块 · ${m.name}`, `【规则模块·${m.name}】\n${m.text.trim()}`);
   add('世界设定', rawAllowed && story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '');
   const p = story.protagonist || {};
@@ -176,16 +202,29 @@ export function buildExtraContext(story, opts) {
     ? `【时间点】这篇番外发生在正史第 ${anchorNo} 章之后。第 ${anchorNo} 章之后的正史还没有发生，不要写到。`
     : '【时间点】正史还没开始，按设定写。');
   add(`最近原文 · ${picked.length} 章`, recentMaterial ? '【时间点前最近原文】\n' + recentMaterial : '');
+  if (passages.length) add('较早正文片段', passages.map(hit => '【第' + hit.chapter.no + '章】\n' + hit.quote).join('\n\n'));
   add('指定章节原文', pinnedMaterial ? '【手动指定的更早章节】\n' + pinnedMaterial : '');
   if(layout) add('当前叙事修订（优先于旧模板冲突条款）',extraEditorial(layout,opts.cast));
   add('最终输出要求',FINAL_OUTPUT_GUIDE);
   const budget = Number(opts.budgetChars) || 30000;
   let system = parts.map((p) => p.text).join('\n\n');
   const user = `请写这篇番外，篇幅大约 ${lenChars} 字（${lenLabel}篇）${lenChars >= 5000 ? '，要写足，不要提前收尾' : ''}。` + (request.trim() ? `\n这次的要求：${request.trim()}` : '') + (pov && scope !== 'char' ? `\n视角角色：${pov}` : '');
+  const excerpts = parts.find(p => p.label === '较早正文片段');
+  if (excerpts && system.length + user.length > budget) {
+    parts.splice(parts.indexOf(excerpts), 1);
+    system = parts.map(p => p.text).join('\n\n');
+  }
   const recall = parts.find((p) => p.label === '历史记忆检索');
   if (recall) {
     const available = Math.max(0, budget - (system.length - recall.text.length) - user.length - 150);
-    if (recall.text.length > available) recall.text = recall.text.slice(0, available).replace(/\n[^\n]*$/, '') || '';
+    if (recall.text.length > available) {
+      const lines = recall.text.split('\n');
+      let kept = lines.shift();
+      for (const line of lines) {
+        if (kept.length + line.length + 1 <= available) kept += '\n' + line;
+      }
+      recall.text = kept.includes('\n') ? kept : '';
+    }
     if (!recall.text) parts.splice(parts.indexOf(recall), 1);
     system = parts.map((p) => p.text).join('\n\n');
   }
@@ -193,7 +232,7 @@ export function buildExtraContext(story, opts) {
     system,
     messages: [{ role: 'user', content: user }],
     info: { parts: parts.map((p) => ({ label: p.label, chars: p.text.length, text: p.text })), totalChars: system.length + user.length, budgetChars: budget,
-      chapters: picked.map((c) => c.no), memoryHits: memory.hits, coreOmitted: memory.coreOmitted, cards: cards.map((c) => c.name), scope, layout, snapshotChapters: rawAllowed ? snapshotChapters.map(c=>c.no) : [], variant: opts.variant || '', cast:opts.cast || null },
+      chapters: picked.map((c) => c.no), excerptChapters: parts.includes(excerpts) ? passages.map(h => h.chapter.no) : [], hasCanon: !!(parts.includes(excerpts) || picked.length || memory.core || memory.state || recall?.text), memoryHits: memory.hits.filter((hit,i) => recall?.text.includes(memory.records.recalled[i].event)), coreOmitted: memory.coreOmitted, cards: cards.map((c) => c.name), scope, layout, snapshotChapters: rawAllowed ? snapshotChapters.map(c=>c.no) : [], variant: opts.variant || '', cast:opts.cast || null },
   };
 }
 

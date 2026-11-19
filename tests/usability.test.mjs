@@ -1056,3 +1056,18 @@ test('出戏后可以沿用正文选项或把问答转入讨论', async () => {
     assert.equal((await getDiscussion('ooc-' + saved)).messages[1].content, '他只见过信封。');
   } finally { dispose(); }
 });
+
+test('受限视角没有素材时在真实发送前等待选择，返回时不产生模型请求或空版本', async () => {
+  const {story}=await seedStory();
+  const extra={id:'no-evidence',storyId:story.id,request:'来一篇论坛帖',scope:'public',tplName:'论坛体',
+    anchorId:'a1',anchorNo:1,pending:true,versions:[],cur:0,connectionId:'qa-conn'};
+  await db.put('extras', extra);
+  const dispose=await extras.render(root,{id:story.id,extraId:extra.id});
+  try {
+    const back=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('返回番外册'));
+    await wait(back); assert.equal(requests.length,0); back().click();
+    await wait(()=>!dispose.busy());
+    assert.equal(requests.length,0);
+    assert.equal((await db.get('extras',extra.id)).versions.length,0);
+  } finally {dispose();}
+});
