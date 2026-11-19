@@ -5,7 +5,7 @@ import { el, uid, toast, menu, promptText, sheet, saveFile, autoGrow, insertAtCu
 import { resolveConnection, getConnections, connLabel, getPrefs, go, getModules, setCurrentStory, getGlobalMemo, watchStory } from '../state.js';
 import { streamWithRetry, ApiError } from '../api.js';
 import { cancelRelayJob } from '../relay.js';
-import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, directorBlock, splitNames, latestCheckpoint } from '../prompt.js';
+import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, splitNames, latestCheckpoint } from '../prompt.js';
 import { migrateCheckpoints } from '../structured-memory.js';
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { archiveConn, DEFAULT_EVERY } from './memory.js';
@@ -487,6 +487,7 @@ export async function render(root, { id }) {
     a.status = 'streaming';
     a.error = null; a.stopped = false; a.flagged = false; a.thinking = false;
     a.finish = null;
+    if (!resumeJob) delete a.recallRefs;
     a.model = conn?.model || a.model || '';
     touch(a);
     nodes.set(a.id, a);
@@ -500,12 +501,10 @@ export async function render(root, { id }) {
       ? [{ role: 'assistant', content: base }, { role: 'user', content: rewriteNote != null ? rewriteMsg(rewriteNote) : CONTINUE_MSG }]
       : [];
     const ctx = buildContext(story, pathTo(a.parentId), { budgetChars, modules: st.modules, extra: extraDirector || '', globalMemo: st.globalMemo, continuationMessages });
-    if (extraDirector?.trim()) {
-      const last = ctx.messages[ctx.messages.length - continuationMessages.length - 1];
-      if (last && last.role === 'user') last.content += directorBlock(extraDirector);
-    }
     ctx.info.historyChars = ctx.messages.reduce((sum, m) => sum + m.content.length, 0);
     ctx.info.totalChars = ctx.system.length + ctx.info.historyChars;
+    const freshRecall = (ctx.info.continuity?.automatic || []).filter((hit) => hit.fresh)
+      .map(({ nodeId, key, quote, reason }) => ({ nodeId, key, quote, reason }));
     if (!resumeJob) { st.lastCtx = ctx; st.lastCtxNodeId = a.id; }
     if (ctx.info.trimmed) toast(`剧情太长，最早的 ${ctx.info.trimmed} 条没有发给模型`);
     if (ctx.info.coreOmitted) toast(`核心记忆有 ${ctx.info.coreOmitted} 条超出预算；可在记忆页整理或暂切整包模式`, 4500);
@@ -538,6 +537,7 @@ export async function render(root, { id }) {
         },
         resumeJob, relayServer: saved?.server || '',
         onJob: async (jobId, server) => {
+          if (freshRecall.length) a.recallRefs = freshRecall;
           a.relayJob = jobId;
           a.relayContext = { server, connectionId: conn.id, base, continuation, usageKind,
             inChars: ctx.info.totalChars,
@@ -559,6 +559,7 @@ export async function render(root, { id }) {
         onConnPatch: (p) => { if (conn) { Object.assign(conn, p); db.put('connections', { ...conn }).catch(() => {}); } },
       });
       a.text = base + r.text;
+      if (!resumeJob && freshRecall.length) a.recallRefs = freshRecall;
       a.status = r.truncated || r.interrupted ? 'partial' : 'done';
       a.finish = r.interrupted ? 'interrupted' : r.finish || null;
       usageRaw = r.usage || null;
@@ -1162,6 +1163,7 @@ export async function render(root, { id }) {
       i.continuity ? el('div', { class: 'card', style: { fontSize: '14px', lineHeight: '1.6' } },
         el('div', { text: '原文章节：' + (i.continuity.kept.join('、') || '无') }),
         i.continuity.excerpts.length ? el('div', { text: '额外引用：第 ' + i.continuity.excerpts.join('、') + ' 章' }) : null,
+        ...i.continuity.automatic.map((hit) => el('div', { text: `自动找回第 ${hit.chapter} 章 · 线索：${hit.reason} · ${hit.fresh ? '本轮命中，之后保留 ' + hit.rounds + ' 轮' : '沿用，本场还可带 ' + hit.rounds + ' 轮（含本轮）'}` })),
         i.continuity.sceneOmitted.length ? el('div', { text: '当前场景中未带整章原文：' + i.continuity.sceneOmitted.join('、') }) : null,
         i.continuity.omitted.length ? el('div', { text: '未带整章原文的待整理章节：' + i.continuity.omitted.join('、') }) : null) : null,
       el('div', { class: 'card', style: { fontSize: '14px', lineHeight: 1.7 } },

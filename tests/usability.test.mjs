@@ -109,6 +109,47 @@ test('导入后的长文本完整显示，选段重写定位只移动正文滚�
   } finally { dispose(); }
 });
 
+test('正文自动找回旧对白，刷新后沿用三轮，换场和回退不携带上一场的引用', async () => {
+  const { story, nodes } = await seedStory();
+  const quote = '他把半温莎结松开，压低声音说：“这一回我教你。”';
+  nodes[1].text = '他的手搭在椅背上。\n\n' + quote + '\n\n我没有伸手。';
+  await db.put('nodes', nodes[1]);
+  let parentId = nodes[1].id;
+  for (let i = 2; i <= 5; i++) {
+    const user = { id: 'recall-u' + i, storyId: story.id, parentId, role: 'user', kind: 'play', text: '好。' };
+    const reply = { id: 'recall-a' + i, storyId: story.id, parentId: user.id, role: 'assistant', kind: 'play',
+      status: 'done', text: i === 2 ? '次日，窗外下起了雨。' : '雨仍在下。' };
+    if (i === 5) reply.checkpoint = { upTo: 5, records: [], schema: 1 };
+    await db.putMany('nodes', [user, reply]);
+    parentId = reply.id;
+  }
+  story.headId = parentId;
+  await db.put('stories', story);
+  let dispose = await play.render(root, { id: story.id });
+  async function send(text) {
+    const count = requests.length + 1;
+    root.querySelector('textarea').value = text;
+    responses.push('雨仍在下。' + options);
+    button('发送').click();
+    await wait(() => requests.length === count && !dispose.busy());
+    return requests.at(-1).body.messages.find((m) => m.role === 'system').content;
+  }
+  try {
+    assert.ok((await send('半温莎结')).includes(quote));
+    const first = await db.get('stories', story.id);
+    const anchor = await db.get('nodes', first.headId);
+    assert.ok(anchor.recallRefs.some((hit) => hit.nodeId === nodes[1].id));
+    dispose(); root.replaceChildren();
+    dispose = await play.render(root, { id: story.id });
+    for (let i = 0; i < 3; i++) assert.ok((await send('嗯。')).includes(quote));
+    assert.ok(!(await send('嗯。')).includes(quote));
+    assert.ok((await send('半温莎结')).includes(quote));
+    assert.ok(!(await send('次日，我到了码头。')).includes(quote));
+    const past = [nodes[0], nodes[1], { ...nodes[0], id: 'alternative', text: '嗯。' }];
+    assert.deepEqual(buildContext(story, past).info.continuity.automatic, []);
+  } finally { dispose(); }
+});
+
 test('番外重写、切回旧版本后续写绑定各自素材与要求，重复点击只请求一次', async () => {
   const {story}=await seedStory();
   const oldContext={system:'旧版本专用设定',messages:[{role:'user',content:'旧版的要求'}],info:{totalChars:20,parts:[],chapters:[],cards:[]}};

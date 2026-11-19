@@ -202,7 +202,8 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
-  const continuity = story.memoryMode !== 'full' && (compact || !cp) ? continuityPlan(story, path, cp, splitNames) : null;
+  const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
+  const continuity = story.memoryMode !== 'full' ? continuityPlan(story, path, cp, splitNames, { recentN, extra }) : null;
   const layered = compact ? layeredMemory(cp.mem, scanText(path, extra)) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
@@ -224,11 +225,9 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, cardText(applyCardState(c, cp?.mem)), 'card');
   add('玩家输入约定', INPUT_CONVENTION, 'rules');
   add('输出格式', '【输出格式】\n' + formatContract({ danmu: story.danmu !== false, options: story.options !== false }), 'format');
-  let system = parts.map((p) => p.text).join('\n\n');
-
   if (continuity) add('互动连续性', '【互动连续性】\n初始设定是故事的起点。判断人物现在的态度、距离和措辞时，以本分支中已经发生的互动为依据。较早片段只是前因；可以延续、暂时搁下或在合适时回应。保留仍未挑明的地方，不替人物定性。', 'rules');
+  let system = parts.map((p) => p.text).join('\n\n');
   const chapterReplies = path.map((n, i) => n.role === 'assistant' && n.kind !== 'ooc' && n.text?.trim() ? i : -1).filter((i) => i >= 0);
-  const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
   const startReply = chapterReplies[Math.max(0, chapterReplies.length - recentN)];
   const recentStart = startReply == null ? 0 : (path[startReply - 1]?.role === 'user' ? startReply - 1 : startReply);
   const recentPath = continuity ? path.slice(recentStart) : cp ? path.slice(cp.index) : path;
@@ -247,7 +246,10 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   function message(n, raw = false) {
     if (n.role === 'user') {
       let content = userContent(n, { withDirector: n === lastUser });
-      if (n === lastUser && n.kind !== 'ooc') content += tail + fmtTail;
+      if (n === lastUser) {
+        if (n.kind !== 'ooc') content += tail + fmtTail;
+        if (extra.trim()) content += directorBlock(extra);
+      }
       return { role: 'user', content };
     }
     const content = raw || n.kind === 'ooc' ? stripReasoning(n.text || '').trim() : forContext(n.text || '');
@@ -284,17 +286,20 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       if (!selected.has(chapter.id) && !take(chapter, quoteReserve)) break;
     }
     const quotes = [];
+    const automatic = [];
     const quoteTitle = '【较早互动原文·供接续参考】';
     let quoteRoom = Math.min(3200, remaining);
     const seen = new Set();
-    for (const { chapter, quote, detail, pinned } of continuity.excerpts) {
+    for (const { chapter, quote, detail, pinned, key: passageKey, reason, rounds, fresh } of continuity.excerpts) {
       const key = chapter.id + '\n' + quote;
-      if (selected.has(chapter.id) || seen.has(key)) continue;
-      const text = `〔第${chapter.no}章${pinned ? ' · 玩家保留' : ''}〕\n${detail ? detail + '\n' : ''}${quote}`;
+      if (selected.has(chapter.id) || seen.has(key) || quotes.some((item) =>
+        item.chapter === chapter.no && (item.quote.includes(quote) || quote.includes(item.quote)))) continue;
+      const text = `〔第${chapter.no}章${pinned ? ' · 玩家保留' : passageKey ? ' · 自动找回' : ''}〕\n${detail ? detail + '\n' : ''}${quote}`;
       const chars = text.length + 2 + (quotes.length ? 0 : quoteTitle.length + 1);
       if (chars > quoteRoom) continue;
       quoteRoom -= chars; remaining -= chars;
-      quotes.push({ chapter: chapter.no, text }); seen.add(key);
+      quotes.push({ chapter: chapter.no, text, quote }); seen.add(key);
+      if (passageKey) automatic.push({ nodeId: chapter.id, chapter: chapter.no, key: passageKey, quote, reason, rounds, fresh });
     }
     const pendingTitle = '【其他尚未整理的较早剧情原文】';
     const pendingBlocks = [];
@@ -326,7 +331,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     const keptChapters = continuity.chapters.filter((c) => selected.has(c.id)).map((c) => c.no);
     const omitted = continuity.pending.filter((c) => !selected.has(c.id)).map((c) => c.no);
     const sceneOmitted = continuity.scene.filter((c) => !selected.has(c.id)).map((c) => c.no);
-    continuityInfo = { kept: keptChapters, excerpts: [...new Set(quotes.map((x) => x.chapter))], omitted, sceneOmitted };
+    continuityInfo = { kept: keptChapters, excerpts: [...new Set(quotes.map((x) => x.chapter))], omitted, sceneOmitted, automatic };
   }
   while (!continuity && !compact && messages.length > 6 && size(messages) + system.length + continuationChars > budgetChars) {
     messages.shift();

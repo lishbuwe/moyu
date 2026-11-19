@@ -1,5 +1,6 @@
 // 正文只引用当前分支上可核对的原文。整理器的判断保存在章节档案上。
 import { parseReply } from './parse.js';
+import { recallPassages } from './recall.js';
 
 function bodyOf(node) {
   return parseReply(node?.text || '').body;
@@ -60,13 +61,13 @@ export function updateContinuity(previous, result, batch, nodes) {
 // 未整理的章节和没有场景标记的旧存档，先识别明确的换场文字。
 const transition = /^(?:[（(【「“\s]*)(?:次日|翌日|隔天|第二天|与此同时|同一时间|另一边|镜头转到|转场|\d+[天周个月年]+后|[两三四五六七八九十几]+[天周个月年]+后)(?:[，。；：！、\s]|一早|清晨|上午|中午|下午|傍晚|晚上|[）)】」”]|$)/u;
 
-export function continuityPlan(story, path, checkpoint, namesOf) {
+export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, extra = '' } = {}) {
   const chapters = [];
   for (let index = 0; index < path.length; index++) {
     const node = path[index];
     if (node.role !== 'assistant' || node.kind === 'ooc' || !node.text?.trim()) continue;
     const user = path[index - 1]?.role === 'user' ? path[index - 1] : null;
-    chapters.push({ id: node.id, node, user, index, no: chapters.length + 1 });
+    chapters.push({ id: node.id, node, user, index, no: chapters.length + 1, userStartedScene: transition.test(user?.text || '') });
   }
   const bodies = new Map();
   function body(chapter) {
@@ -79,11 +80,15 @@ export function continuityPlan(story, path, checkpoint, namesOf) {
   const latestUser = path.findLast((n) => n.role === 'user' && n.kind !== 'ooc');
   const changedScene = transition.test(latestUser?.text || '') && latestUser === path.at(-1);
   let sceneAt = chapters.length;
+  let sceneBoundary;
   if (!changedScene) {
     while (sceneAt > 0) {
       const chapter = chapters[--sceneAt];
       if (quoteIn(body(chapter), markers.get(chapter.id)) ||
-          transition.test(chapter.user?.text || '') || transition.test(body(chapter))) break;
+          chapter.userStartedScene || transition.test(body(chapter))) {
+        sceneBoundary = chapter;
+        break;
+      }
       // 只检查可能放进一次请求的近期原文，避免每轮解析整部小说。
       if (chapters.length - sceneAt >= 30) break;
     }
@@ -110,12 +115,18 @@ export function continuityPlan(story, path, checkpoint, namesOf) {
     }
   }
   excerpts.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.chapter.no - a.chapter.no);
+  const automatic = path.at(-1)?.kind === 'ooc' ? [] : recallPassages(chapters, scene, body, {
+    query: [latestUser?.text, latestUser?.director, extra].filter(Boolean).join('\n').slice(0, 500),
+    context: scene.slice(-2).map((c) => body(c).slice(-260)).join('\n'),
+    people: [...aliases.values()].flat().concat(protagonist || ''),
+    changedScene, recentN, sceneBoundary,
+  });
   const pending = chapters.filter((chapter) => chapter.index > (checkpoint?.index ?? -1));
   const pendingRanked = pending.slice(-30).map((chapter) => {
     const text = (chapter.user?.text || '') + '\n' + body(chapter);
     return { chapter, score: presentNames.filter((name) => mentioned(name, text)).length };
   }).sort((a, b) => b.score - a.score || b.chapter.no - a.chapter.no).map(({ chapter }) => chapter);
   return {
-    chapters, scene, excerpts, pending, pendingRanked,
+    chapters, scene, excerpts: [...excerpts, ...automatic], pending, pendingRanked,
   };
 }
