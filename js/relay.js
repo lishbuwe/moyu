@@ -82,6 +82,9 @@ export async function relayFetch(url, init, { config, resumeJob = null, relaySer
         body: JSON.stringify({ url, method: init.method, headers: Object.fromEntries(new Headers(init.headers)), body: init.body }), signal });
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
+        if (res.status === 503 && /任务.*满/.test(error.error || '')) {
+          throw new RelayError('relay_busy', error.error, { status: 503, hint: '转发服务器当前任务已满，稍后点重试即可。' });
+        }
         throw new RelayError('relay_job', error.error || '转发服务器没有接受任务', { status: res.status });
       }
       id = (await res.json()).id;

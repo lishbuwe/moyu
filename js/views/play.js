@@ -9,6 +9,7 @@ import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, selectExtras,
 import { migrateCheckpoints } from '../structured-memory.js';
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { archiveConn, DEFAULT_EVERY } from './memory.js';
+import { getDiscussion, newDiscussion, saveDiscussion } from '../discuss.js';
 import { parseReply, paragraphs } from '../parse.js';
 import { stripReasoning } from '../reasoning.js';
 import { OPTION_GUIDE } from '../personal.js';
@@ -93,11 +94,15 @@ export async function render(root, { id }) {
     finally { chipDanmu.disabled = false; updateComposer(); }
   } });
   const chipCont = el('button', { class: 'chip', onclick: () => send('continue', '') }, '继续');
-  // 出戏、导演放在右上角菜单里（避免误触）；开着的时候在输入框上方显示一条状态，点 ✕ 关掉
+  const chipOoc = el('button', { class: 'chip', onclick: () => {
+    st.ooc = !st.ooc; updateComposer(); if (st.ooc) ta.focus();
+  } }, '出戏');
+  const chipDir = el('button', { class: 'chip', onclick: () => editDirector() }, '导演');
+  const chipMem = el('button', { class: 'chip', onclick: () => go('memory/' + encodeURIComponent(story.id)) }, '记忆');
   const statusRow = el('div', { class: 'status-row' });
   const composer = el('div', { class: 'composer' },
     statusRow,
-    el('div', { class: 'bar' }, chipDanmu, el('span', { class: 'spacer' }), chipCont),
+    el('div', { class: 'bar' }, chipDanmu, chipOoc, chipDir, chipMem, el('span', { class: 'spacer' }), chipCont),
     el('div', { class: 'inrow' }, el('div', { class: 'input-shell' }, ta, chipQuote), sendBtn)
   );
   const fit = autoGrow(ta);
@@ -124,6 +129,10 @@ export async function render(root, { id }) {
     chipDanmu.setAttribute('aria-checked', String(story.danmu !== false));
     const started = headPath().length > 0;
     const busy = !!st.streaming;
+    chipOoc.disabled = !started || busy;
+    chipOoc.classList.toggle('on', st.ooc);
+    chipOoc.setAttribute('aria-pressed', String(st.ooc));
+    chipDir.classList.toggle('on', !!st.director.trim());
     sendBtn.textContent = busy ? '停止' : (started ? '发送' : '开始');
     sendBtn.classList.toggle('stop', busy);
     statusRow.replaceChildren(...[
@@ -208,6 +217,19 @@ export async function render(root, { id }) {
     return box;
   }
 
+  function optionButtons(options) {
+    const box = el('div', { class: 'options' });
+    options.forEach((option, index) => box.append(el('button', {
+      onclick: () => {
+        st.ooc = false;
+        ta.value += (ta.value && !ta.value.endsWith('\n') ? '\n' : '') + option;
+        fit();
+        updateComposer();
+      },
+    }, el('span', { class: 'k', text: optionLabel(index) }), option)));
+    return box;
+  }
+
   function renderAssistant(n, { isLast, chapter }) {
     const live = st.streaming?.id === n.id;
     const picking = st.pick === n.id;
@@ -217,6 +239,25 @@ export async function render(root, { id }) {
       for (const p of paragraphs(n.text)) box.append(el('p', {}, inlineText(p, getPrefs().emphasis !== false, getPrefs().dialogueColor !== false)));
       if (live && !n.text) box.append(el('div', { class: 'thinking', text: n.thinking ? '思考中' : '回复中' }));
       if (!live && n.text?.trim()) box.append(el('div', { class: 'row end' }, versionCtl(n), moreBtn(() => replyMenu(n, { isLast }))));
+      if (isLast && !live && n.text?.trim() && n.status !== 'error') {
+        const question = nodes.get(n.parentId)?.text || '';
+        const exchange = [question, n.text].filter(Boolean).join('\n');
+        box.append(el('div', { class: 'row' },
+          el('button', { class: 'btn small', onclick: () => editDirector([st.director, exchange].filter(Boolean).join('\n')) }, '下一章采用'),
+          el('button', { class: 'btn small', onclick: async () => {
+            const id = 'ooc-' + n.id;
+            if (!await getDiscussion(id)) {
+              const d = newDiscussion(story.id, question.slice(0, 32) || '出戏讨论');
+              d.id = id;
+              d.messages = [{ role: 'user', content: question }, { role: 'assistant', content: n.text }];
+              await saveDiscussion(d);
+            }
+            go('discuss/' + encodeURIComponent(id));
+          } }, '转到讨论')));
+        const lastPlay = headPath().reverse().find(node => !isOoc(node));
+        const options = lastPlay && isPlayReply(lastPlay) ? parseReply(lastPlay.text).options : [];
+        if (story.options !== false && options.length) box.append(optionButtons(options));
+      }
       wrap.append(box);
     } else {
       const g = el('div', { class: 'gm' + (picking ? ' picking' : '') });
@@ -247,16 +288,7 @@ export async function render(root, { id }) {
         g.append(d);
       }
       if (isLast && !live && !picking && story.options !== false && p.options.length) {
-        const box = el('div', { class: 'options' });
-        p.options.forEach((option, index) => box.append(el('button', {
-          onclick: () => {
-            st.ooc = false;
-            ta.value += (ta.value && !ta.value.endsWith('\n') ? '\n' : '') + option;
-            fit();
-            updateComposer();
-          },
-        }, el('span', { class: 'k', text: optionLabel(index) }), option)));
-        g.append(box);
+        g.append(optionButtons(p.options));
       }
       // 模型没写选项（或格式认不出）：一键补选项，只发这一章，花费很小
       if (isLast && !live && !picking && !p.options.length && story.options !== false && n.kind !== 'ooc' && n.text?.trim() && n.status !== 'partial') {
@@ -432,7 +464,7 @@ export async function render(root, { id }) {
     const u = {
       id: uid(), storyId: story.id, parentId: parentId !== undefined ? parentId : (head ? head.id : null), role: 'user', kind,
       ...(kind === 'play' && inputFormat ? { inputFormat } : {}),
-      text: String(text || '').trim(), director: (director ?? st.director).trim(), createdAt: Date.now(),
+      text: String(text || '').trim(), director: kind === 'ooc' ? '' : (director ?? st.director).trim(), createdAt: Date.now(),
     };
     touch(u);
     nodes.set(u.id, u);
@@ -440,7 +472,7 @@ export async function render(root, { id }) {
     story.headId = u.id;
     st.undoHead = null;
     await saveStory();
-    if (parentId === undefined) { ta.value = ''; fit(); st.director = ''; st.ooc = false; }
+    if (parentId === undefined) { ta.value = ''; fit(); if (kind !== 'ooc') st.director = ''; st.ooc = false; }
     await generate(u);
   }
 
@@ -642,7 +674,7 @@ export async function render(root, { id }) {
         onProgress: (t) => { if (st.archiving) { st.archiving.text = t; updateComposer(); } },
       });
       if (r.newCards?.length) toast(`前情已整理到第 ${r.to} 章，新登场的 ${r.newCards.join('、')} 已经建了角色卡（底部“角色”里过目）`, 5000);
-      else if (r.written.length) toast(`前情已整理到第 ${r.to} 章，点“⋯ → 记忆”可以查看和修改`, 3500);
+      else if (r.written.length) toast(`前情已整理到第 ${r.to} 章，点“记忆”可以查看和修改`, 3500);
     } catch (e) {
       if (e?.kind !== 'aborted' && e?.kind !== 'busy') st.archiveError = e?.message || String(e);
     } finally {
@@ -977,9 +1009,9 @@ export async function render(root, { id }) {
   }
 
   // ───── 其他 ─────
-  async function editDirector() {
+  async function editDirector(value = st.director) {
     const v = await promptText({
-      title: '导演指令', value: st.director,
+      title: '导演指令', value,
       placeholder: '例：这一轮让他主动出手；节奏放慢一点；这轮写短些',
       hint: '只对下一轮生效，不会写进规则，也不会出现在正文里。',
       okText: '好',
@@ -1005,13 +1037,9 @@ export async function render(root, { id }) {
 
   async function storyMenu() {
     const leaves = branchList().length;
-    const started = headPath().length > 0;
     const k = await menu(story.title || '故事', [
-      started ? { key: 'ooc', label: st.ooc ? '退出出戏' : '出戏', hint: '下一句是场外话：问设定、商量走向，不推进剧情' } : null,
-      { key: 'dir', label: st.director.trim() ? '修改导演指令' : '导演指令', hint: '只对下一轮生效的要求，不写进规则' },
       ...manualMods().map((m) => ({ key: 'mod:' + m.id, label: `情境：${m.name}${story.manualOn[m.id] ? '  ✓ 开着' : '（关着）'}`, hint: story.manualOn[m.id] ? '点一下关掉' : '点一下打开，之后每轮都带上这个模块' })),
       { key: 'edit', label: '世界设定与规则', hint: '世界设定、开场、弹幕/选项开关、规则和模块；角色在底部“角色”里' },
-      { key: 'memory', label: '记忆（前情档案）', hint: (() => { const pc = pendingChapters(headPath()); return pc.cp ? `整理到第 ${pc.upTo} 章${pc.pending.length ? `，还有 ${pc.pending.length} 章没整理` : ''}` : '还没整理过；也在这里设每几章整理一次'; })() },
       { key: 'branch', label: `分支${leaves > 1 ? `（${leaves} 条）` : ''}`, hint: '重写或回退后留下的其他走向' },
       { key: 'cost', label: '花费', hint: '这个故事和本月花了多少' },
       { key: 'ctx', label: '查看发给模型的内容', hint: '排查“为什么他又不像他了”' },
@@ -1026,10 +1054,7 @@ export async function render(root, { id }) {
       await saveStory();
       updateComposer();
       toast(story.manualOn[mid] ? '已打开，下一轮起带上' : '已关掉');
-    } else if (k === 'ooc') { st.ooc = !st.ooc; updateComposer(); if (st.ooc) ta.focus(); }
-    else if (k === 'dir') editDirector();
-    else if (k === 'edit') go(`story/${encodeURIComponent(story.id)}`);
-    else if (k === 'memory') go(`memory/${encodeURIComponent(story.id)}`);
+    } else if (k === 'edit') go(`story/${encodeURIComponent(story.id)}`);
     else if (k === 'branch') showBranches();
     else if (k === 'cost') showCost();
     else if (k === 'ctx') showContext();

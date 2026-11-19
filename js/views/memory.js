@@ -8,7 +8,7 @@ import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
 import { fmtMoney } from '../cost.js';
 import { migrateCheckpoints, projectColumns, syncStructured } from '../structured-memory.js';
 
-export const DEFAULT_EVERY = 15; // 旧故事未明确设置时保留升级前的频率；新故事创建时单独设为 1。
+export const DEFAULT_EVERY = 15;
 
 function pathTo(nodes, nodeId) {
   const out = [];
@@ -57,7 +57,7 @@ export async function render(root, { id }) {
     // 整理设置与按钮
     const every = el('input', { type: 'number', min: '0', max: '60', step: '1', style: { width: '90px', flex: 'none' } });
     every.value = String(story.memEvery ?? DEFAULT_EVERY);
-    every.addEventListener('change', () => { story.memEvery = Math.max(0, Math.min(60, Number(every.value) || 0)); saveStory(); toast(story.memEvery ? `每 ${story.memEvery} 章自动整理一次` : '已关闭自动整理'); });
+    every.addEventListener('change', () => { story.memEveryExplicit = true; story.memEvery = Math.max(0, Math.min(60, Number(every.value) || 0)); saveStory(); toast(story.memEvery ? `每 ${story.memEvery} 章自动整理一次` : '已关闭自动整理'); });
     const connSel = el('select', { onchange: () => { story.memConnId = connSel.value || null; saveStory(); } });
     const mode = el('input', { type: 'checkbox' }); mode.checked = story.memoryMode === 'full';
     mode.addEventListener('change', () => { story.memoryMode = mode.checked ? 'full' : 'layered'; saveStory(); toast(mode.checked ? '已切回整包档案' : '已启用分层记忆'); });

@@ -22,7 +22,7 @@ export function openStoryEditor(existing, prefill = null) {
     const isNew = !existing;
     const story = existing ? { ...existing } : {
       id: uid(), title: '', world: '', rules: await getDefaultRules(), opening: '',
-      danmu: true, options: true, connectionId: null, headId: null, memEvery: 1,
+      danmu: true, options: true, connectionId: null, headId: null, memEvery: 15,
       createdAt: Date.now(), updatedAt: Date.now(), schema: 1,
     };
     if (!existing && prefill) {

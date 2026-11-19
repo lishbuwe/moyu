@@ -1029,3 +1029,30 @@ test('已存档思考标签在正文和番外原文/排版阅读中隐藏，原�
   root.replaceChildren();const end=await extras.render(root,{id:story.id,extraId:'tagged-extra'});
   try{assert.ok(!root.textContent.includes('EXTRA_SECRET'));assert.ok(root.querySelector('.ex-bubble'));button('原文').click();assert.ok(!root.querySelector('.extra-raw').textContent.includes('EXTRA_SECRET'));assert.ok((await db.get('extras','tagged-extra')).versions[0].text.includes('EXTRA_SECRET'));}finally{end();}
 });
+
+test('旧默认每章整理调整到十五章，保留关闭、自定义间隔和重新选定的一章', async () => {
+  for (const [value, explicit, expected] of [[1,false,15],[1,true,1],[0,false,0],[7,false,7]]) {
+    await db.put('stories', { id: 'interval', memEvery: value, memEveryExplicit: explicit });
+    assert.equal((await db.get('stories', 'interval')).memEvery, expected);
+    assert.equal((await db.all('stories'))[0].memEvery, expected);
+  }
+});
+
+test('出戏后可以沿用正文选项或把问答转入讨论', async () => {
+  const { story } = await seedStory();
+  const dispose = await play.render(root, { id: story.id });
+  try {
+    button('出戏', root).click();
+    const input = root.querySelector('textarea');
+    input.value = '他知道这件事吗？';
+    responses.push('他只见过信封。');
+    root.querySelector('button.send').click();
+    await wait(() => button('下一章采用', root));
+    root.querySelector('.options button').click();
+    assert.equal(input.value, '查看地图');
+    button('转到讨论', root).click();
+    const saved = (await db.get('stories', story.id)).headId;
+    await wait(async () => (await getDiscussion('ooc-' + saved))?.messages.length === 2);
+    assert.equal((await getDiscussion('ooc-' + saved)).messages[1].content, '他只见过信封。');
+  } finally { dispose(); }
+});

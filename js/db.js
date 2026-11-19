@@ -60,9 +60,14 @@ function reportWriteError(e) {
   console.error('[墨游] 保存失败', e);
 }
 
+function readStory(story) {
+  if (story && Number(story.memEvery) === 1 && !story.memEveryExplicit) story.memEvery = 15;
+  return story;
+}
+
 export const db = {
-  get: (store, key) => run(store, 'readonly', (os) => os.get(key)),
-  all: (store) => run(store, 'readonly', (os) => os.getAll()),
+  async get(store, key) { const value = await run(store, 'readonly', (os) => os.get(key)); return store === 'stories' ? readStory(value) : value; },
+  async all(store) { const values = await run(store, 'readonly', (os) => os.getAll()); return store === 'stories' ? values.map(readStory) : values; },
   byStory: (storyId) => run('nodes', 'readonly', (os) => os.index('storyId').getAll(storyId)),
   extrasOf: (storyId) => run('extras', 'readonly', (os) => os.index('storyId').getAll(storyId)),
   async put(store, value, key) {
