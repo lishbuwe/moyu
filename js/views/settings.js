@@ -4,7 +4,7 @@ import { db, exportAll, importData, storageInfo } from '../db.js';
 import { el, uid, toast, sheet, saveFile, pickFile, APP_VERSION, promptText } from '../util.js';
 import { getConnections, getDefaultConnId, setDefaultConnId, getDefaultRules, getPrefs, setPrefs, connLabel, go, getModules, saveModules, MODULE_MODES, modulesFromMarkdown, modulesToMarkdown } from '../state.js';
 import { FORMAT_LABEL, normalizeUrl, guessFormat, testConnection, listModels } from '../api.js';
-import { parseServiceAccount } from '../vertex.js';
+import { parseServiceAccount, VERTEX_MODELS } from '../vertex.js';
 import { getRelay, saveRelay, testRelay } from '../relay.js';
 import { DEFAULT_RULES } from '../prompt.js';
 import { getMonthSpend, getBudget, setBudget, fmtTokens, CUR, priceLabel } from '../cost.js';
@@ -30,7 +30,7 @@ function seg(options, value, onpick) {
 }
 
 /** 可搜索的模型选择框，返回选中的模型名（取消返回 null） */
-function pickModel(list, current = '') {
+function pickModel(list, current = '', note = '') {
   return new Promise((resolve) => {
     let picked = null;
     const s = sheet({ title: `选择模型（共 ${list.length} 个）`, onClose: () => resolve(picked) });
@@ -46,6 +46,7 @@ function pickModel(list, current = '') {
       if (!hits.length) box.append(el('div', { class: 'hint', text: '没有匹配的模型' }));
     };
     q.addEventListener('input', draw);
+    if (note) s.body.append(el('div', { class: 'hint', text: note }));
     s.body.append(el('div', { class: 'field', style: { marginBottom: '6px' } }, q), box);
     s.foot.remove();
     draw();
@@ -344,7 +345,7 @@ export async function render(root, { section }) {
     // 默认打码，免得截图时把私钥带出去
     saText.style.webkitTextSecurity = 'disc';
     const saShow = el('button', { class: 'btn small ghost', onclick: () => { const hid = saText.style.webkitTextSecurity === 'disc'; saText.style.webkitTextSecurity = hid ? 'none' : 'disc'; saShow.textContent = hid ? '隐藏' : '显示'; } }, '显示');
-    const saFile = el('button', { class: 'btn small', onclick: async () => { const f = await pickFile('.json,application/json'); if (f) { saText.value = f.text; checkSa(); refreshUrl(); } } }, '从文件导入');
+    const saFile = el('button', { class: 'btn small', onclick: async () => { const f = await pickFile('.json,application/json'); if (f) { saText.value = f.text; saText.dispatchEvent(new Event('input')); } } }, '从文件导入');
     const region = el('input', { type: 'text', placeholder: 'global', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' }); region.value = c.region || 'global';
     const baseField = el('div', { class: 'field' });
     const keyField = el('div', { class: 'field' });
@@ -392,28 +393,45 @@ export async function render(root, { section }) {
 
     // 模型列表：iPhone 上输入框自带的候选列表点不出来，所以拉到列表后弹一个可搜索的选择框
     let fetched = [];
-    const setFetched = (list) => {
+    let catalogNote = '';
+    const setFetched = (list, fallback = false) => {
       fetched = list || [];
+      catalogNote = '';
+      if (isV() && (fetched.length || fallback)) {
+        fetched = [...new Set([...VERTEX_MODELS, ...fetched])];
+        catalogNote = fallback ? 'Google 目录暂不可用，显示内置候选。可点「重新获取」再试。' : '包含 Google 目录和内置候选。选好后可测试此项目能否调用。';
+      }
       dl.replaceChildren(...fetched.map((m) => el('option', { value: m })));
       getModels.textContent = fetched.length ? `选择模型（${fetched.length}）` : '获取模型列表';
     };
     const getModels = el('button', {
       class: 'btn small',
       onclick: async () => {
+        const cur = read();
         if (!fetched.length) {
-          getModels.disabled = true; getModels.textContent = '获取中…';
+          getModels.disabled = refetch.disabled = true;
+          getModels.textContent = '获取中…';
+          let list = [];
           try {
-            setFetched(await listModels(read()));
-            if (!fetched.length) toast('列表是空的，只能手动输入模型名');
-          } catch (e) { toast('获取失败：' + e.message, 3500); setFetched([]); }
-          getModels.disabled = false;
+            list = await listModels(cur);
+            if (!list.length && cur.format !== 'vertex') toast('接口返回了空的模型列表');
+          }
+          catch (e) { if (cur.format !== 'vertex') toast('获取失败：' + e.message, 3500); }
+          finally { getModels.disabled = refetch.disabled = false; }
+          const latest = read();
+          if (!s.panel.isConnected || ['format','baseUrl','apiKey','region'].some(k => latest[k] !== cur[k])) return;
+          setFetched(list, cur.format === 'vertex' && !list.length);
           if (!fetched.length) return;
         }
-        const m = await pickModel(fetched, model.value.trim());
+        const m = await pickModel(fetched, model.value.trim(), catalogNote);
         if (m) { model.value = m; toast('已选择 ' + m); }
       },
     }, '获取模型列表');
     const refetch = el('button', { class: 'btn small ghost', onclick: () => { setFetched([]); getModels.click(); } }, '重新获取');
+
+    for (const field of [base, key, region, saText, fmt]) {
+      field.addEventListener(field === fmt ? 'change' : 'input', () => setFetched([]));
+    }
 
     const testBtn = el('button', {
       class: 'btn primary block',

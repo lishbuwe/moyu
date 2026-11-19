@@ -411,14 +411,18 @@ test('复制 Vertex 连接保留服务账号 JSON 和地区', async () => {
   await wait(() => !!document.querySelector('[role=dialog]'));
   const dialog = document.querySelector('[role=dialog]');
   assert.equal(dialog.querySelector('textarea').value, key);
-  dialog.querySelector('input[list]').value = 'second-model';
+  button('获取模型列表', dialog).click();
+  await wait(() => !!button('gemini-4-neon'));
+  assert.ok(document.body.textContent.includes('显示内置候选'));
+  button('gemini-4-neon').click();
+  await wait(() => dialog.querySelector('input[list]').value === 'gemini-4-neon');
   button('保存副本',dialog).click();
   await wait(() => !document.querySelector('[role=dialog]'));
   const copy = (await db.all('connections')).find(c => c.id !== 'qa-conn');
   assert.equal(copy.format, 'vertex');
   assert.equal(copy.apiKey, key);
   assert.equal(copy.region, 'us-central1');
-  assert.equal(copy.model, 'second-model');
+  assert.equal(copy.model, 'gemini-4-neon');
   assert.equal(await db.kvGet('defaultConn',null), 'qa-conn');
 });
 

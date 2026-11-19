@@ -39,7 +39,7 @@ async function importKey(pem) {
 const tokens = new Map(); // client_email|key id → { token, exp }
 
 /** 拿访问令牌（有效期内复用，快过期时重新换） */
-export async function getAccessToken(sa) {
+export async function getAccessToken(sa, signal) {
   const k = sa.client_email + '|' + (sa.private_key_id || '');
   const hit = tokens.get(k);
   const now = Math.floor(Date.now() / 1000);
@@ -53,7 +53,7 @@ export async function getAccessToken(sa) {
   let res;
   try {
     res = await fetch(tokenUri, {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: 'POST', signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + assertion,
     });
   } catch (e) {
@@ -87,4 +87,38 @@ export async function resolveVertex(conn) {
   return { ...conn, format: 'openai', baseUrl: vertexBaseUrl(sa, conn.region), apiKey: token, model: m.includes('/') ? m : 'google/' + m };
 }
 
-export const VERTEX_MODELS = ['gemini-4-argon', 'gemini-4-carbon', 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview'];
+export const VERTEX_MODELS = ['gemini-4-neon', 'gemini-4-hydrogen', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview'];
+
+// Model Garden 是发布者目录；项目能否调用某个模型由「测试连接」验证。
+export async function listVertexModels(conn) {
+  const sa = parseServiceAccount(conn.apiKey);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const token = await getAccessToken(sa, ctrl.signal);
+    const url = new URL('https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/google/models');
+    url.searchParams.set('pageSize', '100');
+    url.searchParams.set('listAllVersions', 'true');
+    const ids = new Set();
+    const pages = new Set();
+    for (;;) {
+      const response = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + token }, signal: ctrl.signal,
+      });
+      if (!response.ok) throw new Error('Google 模型目录返回 HTTP ' + response.status);
+      const data = await response.json();
+      for (const entry of data.publisherModels || []) {
+        const name = entry.name?.split('/').pop() || '';
+        for (const id of [name, entry.versionId]) {
+          if (/^gemini-[a-z0-9][a-z0-9.-]*$/i.test(id) &&
+              !/(?:^|-)(?:embedding|image|live|audio|tts|robotics|nano-banana)(?:-|$)/i.test(id)) ids.add(id);
+        }
+      }
+      if (!data.nextPageToken) break;
+      if (pages.has(data.nextPageToken)) throw new Error('Google 模型目录分页重复');
+      pages.add(data.nextPageToken);
+      url.searchParams.set('pageToken', data.nextPageToken);
+    }
+    return [...ids].sort((a,b) => b.localeCompare(a, 'en', { numeric: true }));
+  } finally { clearTimeout(timer); }
+}

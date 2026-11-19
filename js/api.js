@@ -6,7 +6,7 @@
 //  - 回复内容为空、被拦截、被截断，和网络错误分开报告
 //  - 所有错误都翻译成中文并附修法，原始返回保留在 detail 里方便排查
 
-import { resolveVertex, parseServiceAccount, vertexBaseUrl, VERTEX_MODELS } from './vertex.js';
+import { resolveVertex, parseServiceAccount, vertexBaseUrl, listVertexModels } from './vertex.js';
 import { getRelay, relayFetch, RelayError } from './relay.js';
 import { inspectReasoning, stripReasoning } from './reasoning.js';
 import { prepareVertexCache } from './cache.js';
@@ -492,7 +492,7 @@ export async function streamWithRetry(conn, opts, { retries = 1, onRetry = () =>
 }
 
 export async function listModels(conn) {
-  if (conn?.format === 'vertex') return [...VERTEX_MODELS];
+  if (conn?.format === 'vertex') return listVertexModels(conn);
   const format = guessFormat(conn);
   const url = modelsUrl(format, conn.baseUrl);
   let res;
