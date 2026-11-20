@@ -7,6 +7,7 @@ import { protagonistState, PROTAGONIST_FIELDS } from './protagonist.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
 import { projectColumns, layeredMemory } from './structured-memory.js';
+import { activeEdition, editionMemory } from './consolidation.js';
 import { continuityPlan } from './continuity.js';
 
 export const DEFAULT_RULES = PERSONAL_RULES;
@@ -197,6 +198,7 @@ export function inputBudgetChars(conn) {
 export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '', continuationMessages = [] } = {}) {
   const { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
+  if (cp) cp.mem = editionMemory(cp.mem, activeEdition(path));
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
   const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
   const continuity = story.memoryMode !== 'full' ? continuityPlan(story, path, cp, splitNames, { recentN, extra }) : null;

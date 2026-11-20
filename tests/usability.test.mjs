@@ -1071,3 +1071,58 @@ test('受限视角没有素材时在真实发送前等待选择，返回时不�
     assert.equal((await db.get('extras',extra.id)).versions.length,0);
   } finally {dispose();}
 });
+
+test('旧记忆整合预览、应用、分支回退和还原，保留动机与原档',async()=>{
+  const {ensureStructured}=await import('../js/structured-memory.js');
+  const {render}=await import('../js/views/memory.js');
+  const {story,nodes}=await seedStory();
+  const checkpoint={upTo:1,summaries:[{from:1,to:1,text:'嘉树每天站柜台。贺嘉衡想让他学会接待顾客。'}]};
+  ensureStructured(checkpoint,'a1');
+  nodes[1].checkpoint=checkpoint;
+  await db.put('nodes',nodes[1]);
+  const answer='贺嘉衡让嘉树站柜台，是为了锻炼他接待顾客。';
+  responses.push(JSON.stringify({check:[0]}),JSON.stringify({groups:[{rows:[0],kind:'转折',text:answer}],doubts:[]}));
+  const end=await render(root,{id:story.id});
+  try{
+    button('整合已有记忆').click();
+    await wait(()=>button('生成草稿'));
+    assert.equal(requests.length,0);
+    button('生成草稿').click();
+    await wait(()=>button('应用整合版'));
+    assert.equal(requests.length,2);
+    assert.equal((await db.get('nodes','a1')).memoryEdition,undefined);
+    button('应用整合版').click();
+    await wait(async()=>!!(await db.get('nodes','a1')).memoryEdition);
+    const context=async node=>buildContext({...story,memoryMode:'full'},[nodes[0],node]).system;
+    const applied=await db.get('nodes','a1');
+    assert.ok((await context(applied)).includes(answer));
+    assert.deepEqual(applied.checkpoint,checkpoint);
+    assert.ok(!(await context(nodes[1])).includes(answer));
+    await wait(()=>!document.querySelector('.sheet'));
+    button('整合已有记忆').click();await wait(()=>button('还原原档'));
+    button('还原原档').click();
+    await wait(async()=>(await db.get('nodes','a1')).memoryEdition===null);
+    assert.ok((await context(await db.get('nodes','a1'))).includes(checkpoint.summaries[0].text));
+  }finally{end();}
+});
+
+test('多批草稿失败后续跑，只重发未完成批次',async()=>{
+  const {ensureStructured}=await import('../js/structured-memory.js');
+  const {render}=await import('../js/views/memory.js');
+  const {story,nodes}=await seedStory();
+  const cp={upTo:1,summaries:Array.from({length:20},(_,i)=>({from:1,to:1,text:'细节编号'+i}))};
+  ensureStructured(cp,'a1'); nodes[1].checkpoint=cp; await db.put('nodes',nodes[1]);
+  const end=await render(root,{id:story.id});
+  try{
+    responses.push('{"groups":[]}','无效返回');
+    button('整合已有记忆').click();await wait(()=>button('生成草稿'));button('生成草稿').click();
+    await wait(()=>button('继续整合'));
+    document.querySelector('.sheet [aria-label="关闭"]').click();
+    button('整合已有记忆').click();await wait(()=>button('继续整合'));
+    responses.push('{"groups":[],"doubts":["保留原文"]}');
+    button('继续整合').click();await wait(()=>document.body.textContent.includes('没有可合并的建议'));
+    assert.equal(requests.length,3);
+    assert.deepEqual(requests[1].body.messages,requests[2].body.messages);
+    assert.ok(!(await db.get('nodes','a1')).memoryEdition);
+  }finally{end();}
+});

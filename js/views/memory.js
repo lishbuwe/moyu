@@ -5,6 +5,7 @@ import { el, toast, sheet } from '../util.js';
 import { resolveConnection, getConnections, connLabel, go, setCurrentStory, watchStory, PLAY_KEYS } from '../state.js';
 import { latestCheckpoint } from '../prompt.js';
 import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
+import { openEdition } from './memory-edition.js';
 import { fmtMoney } from '../cost.js';
 import { migrateCheckpoints, projectColumns, syncStructured } from '../structured-memory.js';
 
@@ -96,7 +97,9 @@ export async function render(root, { id }) {
         el('div', { class: 'hint', text: '留空就跟正文共用连接。每章自动整理会在正文结束后再发一次模型请求；如果常遇到 429，可以在这里单独选一条有额度的连接。便宜模型可能漏细节，请在整理后检查档案。' })),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '使用旧整包档案模式', el('small', { text: '关闭时，正文会按场景接续，并引用还在发展的较早互动。' })), mode),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '最近保留几章原文', el('small', { text: '按场景接续时的保底章数，预算允许时会带上更多相关原文。' })), recent),
-      el('div', { class: 'row' }, runBtn, redoBtn), status));
+      el('div', { class: 'row' }, runBtn, redoBtn, cp ? el('button', { class:'btn small', onclick:async () => {
+        try { await openEdition(story,path,cp,await archiveConn(story),reload); } catch (e) { toast(e.message); }
+      } }, '整合已有记忆') : null), status));
     if (running) status.textContent = running.text + '（可以离开这页，整理会在后台继续）';
     else if (ext) status.textContent = ext.text + '（游玩页在后台整理，完成后这里会自动刷新）';
 

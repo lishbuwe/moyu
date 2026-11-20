@@ -79,6 +79,27 @@ export const db = {
     if (store !== 'kv') notifyPut(store, value);
     return r;
   },
+  async setMemoryEdition(nodeId, storyId, headId, cpId, expected, edition) {
+    const updated = await open().then(database => new Promise((resolve,reject) => {
+      const tx = database.transaction(['nodes','stories'],'readwrite');
+      const ns = tx.objectStore('nodes');
+      const head = ns.get(nodeId), cp = ns.get(cpId), story = tx.objectStore('stories').get(storyId);
+      let value;
+      story.onsuccess = () => {
+        value = head.result;
+        if (!value || story.result?.headId !== headId || JSON.stringify(cp.result?.checkpoint) !== expected) {
+          tx.abort(); return;
+        }
+        value.memoryEdition = edition;
+        ns.put(value);
+      };
+      tx.oncomplete = () => resolve(value);
+      tx.onabort = () => reject(tx.error || Error('分支或档案已更新，请重新打开记忆页'));
+      tx.onerror = () => reject(tx.error);
+    }));
+    notifyPut('nodes', updated);
+    return updated;
+  },
   async putStoryWithNode(story, node) {
     try {
       await run('stories', 'readwrite', (stories, tx) => {
