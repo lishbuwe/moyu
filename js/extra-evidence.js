@@ -43,11 +43,27 @@ export function evidenceRecords(sources, names, cache = {}) {
   const previous = new Map(cache.signature === signature && Array.isArray(cache.entries) ? cache.entries : []);
   const used = new Map(), records = [], seen = new Set();
   for (const source of sources) {
-    for (const event of sentences(source.text)) {
+    let previousLine = '';
+    for (const line of sentences(source.text)) {
+      const preceding = previousLine;
+      previousLine = line;
+      let event = line;
+      // 同章紧邻的进场与明确面向此人的发言。只认一个具名入场者，
+      // 代词不能跨越切场、插话或其他叙述；公众不会因此获得私聊。
+      let addressed = null;
+      if (source.chapter && !uncertain.test(preceding)) {
+        const listener = readers.find(name => preceding.startsWith(name) && /^(?:推门进来|在对面坐下|(?:走进|走入|来到|回到)(?:了)?[\p{Script=Han}]{1,8})。$/u.test(preceding.slice(name.length)));
+        const speaker = listener && readers.find(name => name !== listener && ['对她说', '对他说', '朝她说', '朝他说'].some(verb => line.startsWith(name + verb + '：“') && /^.*：“[^“”]+”[。]?$/.test(line)));
+        if (speaker && readers.every(name => name === listener || !preceding.includes(name))) {
+          event = preceding + line;
+          addressed = [speaker, listener];
+        }
+      }
       if (event.length > 200 || uncertain.test(event) || /[，,、]/u.test(event.replace(/^([^，,]{1,12})(现场|上|中)[，,]/u, '$1$2'))) continue;
       let knowers = previous.get(event);
       if (!knowers) {
-        if (publicSource.test(event)) knowers = ['公开'];
+        if (addressed) knowers = addressed;
+        else if (publicSource.test(event)) knowers = ['公开'];
         else knowers = witnesses(event, readers);
       }
       if (!knowers.length) continue;

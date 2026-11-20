@@ -200,7 +200,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
   const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
   const continuity = story.memoryMode !== 'full' ? continuityPlan(story, path, cp, splitNames, { recentN, extra }) : null;
-  const layered = compact ? layeredMemory(cp.mem, scanText(path, extra)) : null;
+  const layered = compact ? layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true }) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
   add('开头', '你正在主持一场文字互动小说。', 'base');

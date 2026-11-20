@@ -63,6 +63,7 @@ test('百章档案按预算保留未整理原文，提到停电与本子时仍�
   const mem = { ...emptyMemory(), upTo: 90,
     summaries: Array.from({ length: 90 }, (_, i) => ({ from: i + 1, to: i + 1, text: `第${i + 1}章发生的普通小事。` + '情景'.repeat(70) })),
     irreversible: ['顾律留下B5速写本'], threads: ['大二那次停电的原因还没解开'] };
+  mem.summaries[8].text = '停电后借着手电筒画完了最后一页。';
   ensureStructured(mem, 'cp90');
   const path = [];
   for (let i = 1; i <= 100; i++) {
@@ -76,7 +77,8 @@ test('百章档案按预算保留未整理原文，提到停电与本子时仍�
   assert.ok(compact.system.includes('停电') && compact.system.includes('速写本'));
   assert.deepEqual(compact.info.continuity.kept, [91,92,93,94,95,96,97,98,99,100]);
   assert.equal(compact.messages.filter(m => m.role === 'assistant').length, 6);
-  assert.ok(compact.info.retrievalHits.length > 0);
+  assert.ok(compact.system.includes('借着手电筒画完了最后一页'));
+  assert.ok(compact.info.retrievalHits.some(hit => hit.from === 9));
 });
 
 test('跨十二章接回试探原句，沿用当前场景，回退和改写后不引用错误版本', () => {
@@ -116,4 +118,27 @@ test('跨十二章接回试探原句，沿用当前场景，回退和改写后�
     closeLines: [{ id: mem.continuity.lines[0].id, chapter: 14, quote: '他们沿河慢慢走了几步。' }],
   }, batch.slice(-1), nodes);
   assert.deepEqual(closed.lines, []);
+});
+
+test('四百章后日常输入可零召回，提起旧物时找回一次，核心仍保留', async () => {
+  const { layeredMemory } = await import('../js/structured-memory.js');
+  const m={upTo:400,records:[]};
+  for(let i=1;i<=400;i++) m.records.push({id:String(i),sourceFrom:i,sourceTo:i,event:'街角旧闻'+i,type:'event'});
+  m.records[4].event='她留下玻璃风铃。';
+  m.records.push({...m.records[4],id:'repeat',event:'她留下玻璃风铃'});
+  m.records[9].irreversible=true;
+  const recall=q=>layeredMemory(m,q,{requireMatch:true});
+  assert.equal(recall('午饭吃面').recalled,'');
+  assert.match(recall('午饭吃面').core,/街角旧闻10/);
+  assert.equal(recall('玻璃风铃').hits.length,1);
+});
+
+test('四百段旧摘要不会随档案整包重发，历史数据保留', async () => {
+  const { archivistPrompt, emptyMemory }=await import('../js/memory.js');
+  const prev={...emptyMemory(),upTo:400,summaries:Array.from({length:400},(_,i)=>({from:i+1,to:i+1,text:'旧摘要'+i+'。'+'平淡日常'.repeat(40)}))};
+  const result=archivistPrompt({},prev,[{no:401,text:'新的剧情。'}]);
+  assert.ok(result.visible.summaries.reduce((sum,x)=>sum+x.text.length,0)<=1600);
+  assert.ok(result.user.includes('旧摘要399。'));
+  assert.ok(!result.user.includes('旧摘要0。'));
+  assert.equal(prev.summaries.length,400);
 });

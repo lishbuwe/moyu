@@ -133,7 +133,9 @@ const words = (s) => [...new Set((clean(s).toLowerCase().match(/[\p{Script=Han}]
   return bits;
 }))];
 
-export function retrieveRecords(records, query, { at = Infinity, scope = 'all', pov = '', limitChars = 4000, omit = [] } = {}) {
+const factKey = text => clean(text).normalize('NFKC').replace(/\s+/gu, '').replace(/[。.!！]+$/u, '');
+
+export function retrieveRecords(records, query, { at = Infinity, scope = 'all', pov = '', limitChars = 4000, omit = [], requireMatch = false } = {}) {
   const terms = words(query);
   const excluded = new Set(omit.map((x) => x.id));
   const eligible = records.filter((r) => r.sourceTo <= at && (r.invalidatedAt == null || r.invalidatedAt > at) && !excluded.has(r.id) && (
@@ -141,31 +143,48 @@ export function retrieveRecords(records, query, { at = Infinity, scope = 'all', 
   const score = (r) => {
     const labels = [r.event, ...(r.people || []), r.location, ...(r.items || []), ...(r.tags || [])].join(' ').toLowerCase();
     const hits = terms.reduce((sum, term) => sum + (labels.includes(term) ? (term.length >= 3 ? 5 : 3) : 0), 0);
+    if (requireMatch && !hits) return -1;
     return hits * 10 + (Number(r.importance) || 5) * 2 + Math.min(5, (r.sourceTo || 0) / Math.max(1, at === Infinity ? r.sourceTo || 1 : at) * 5);
   };
-  const ranked = eligible.sort((a, b) => score(b) - score(a) || b.sourceTo - a.sourceTo);
+  const ranked = eligible.map(r => ({r, score: score(r)})).filter(x => x.score >= 0)
+    .sort((a, b) => b.score - a.score || b.r.sourceTo - a.r.sourceTo);
+  const seen = new Set(omit.map(r => factKey(r.event)));
   const result = []; let used = 0;
-  for (const r of ranked) {
+  for (const {r} of ranked) {
+    const key = factKey(r.event);
+    if (seen.has(key)) continue;
     const size = r.event.length + 14;
     if (used + size > limitChars) continue;
-    result.push(r); used += size;
+    seen.add(key); result.push(r); used += size;
   }
   return result;
 }
 
-export function layeredMemory(mem, query, { at = mem?.upTo || 0, coreChars = 2300, stateChars = 900, retrieveChars = 4000, scope = 'all', pov = '' } = {}) {
+export function layeredMemory(mem, query, { at = mem?.upTo || 0, coreChars = 2300, stateChars = 900, retrieveChars = 4000, scope = 'all', pov = '', requireMatch = false } = {}) {
   const all = activeRecords(mem, at);
-  const fit = (list, cap) => { const out = []; let size = 0; for (const r of list) { if (size + r.event.length + 18 > cap) continue; out.push(r); size += r.event.length + 18; } return out; };
+  const seen = new Set();
+  const fit = (list, cap) => {
+    const out = [];
+    let size = 0;
+    for (const r of list) {
+      const key = factKey(r.event);
+      if (seen.has(key) || size + r.event.length + 18 > cap) continue;
+      seen.add(key);
+      out.push(r);
+      size += r.event.length + 18;
+    }
+    return out;
+  };
   const coreWanted = all.filter((r) => r.irreversible || ['correction', 'knowledge'].includes(r.type))
     .sort((a, b) => (b.importance || 0) - (a.importance || 0) || b.sourceTo - a.sourceTo);
   const core = fit(coreWanted, coreChars);
   const state = fit(all.filter((r) => ['thread', 'item'].includes(r.type))
     .sort((a, b) => b.sourceTo - a.sourceTo), stateChars);
-  const recalled = retrieveRecords(all, query, { at, scope, pov, limitChars: retrieveChars, omit: [...core, ...state] });
+  const recalled = retrieveRecords(all, query, { at, scope, pov, limitChars: retrieveChars, requireMatch, omit: [...core, ...state] });
   const line = (r) => `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`;
   return { core: core.map(line).join('\n'), state: state.map(line).join('\n'), recalled: recalled.map(line).join('\n'),
     hits: recalled.map((r) => ({ id: r.id, from: r.sourceFrom, to: r.sourceTo })),
-    coreOmitted: coreWanted.length - core.length, records: { core, state, recalled } };
+    coreOmitted: new Set(coreWanted.map(r => factKey(r.event))).size - core.length, records: { core, state, recalled } };
 }
 
 /** 按分支节点的历史版本合并，允许从未来那份档案里找回确知发生在时间点之前的事件。 */

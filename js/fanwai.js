@@ -133,7 +133,7 @@ export function buildExtraContext(story, opts) {
   if (!rawAllowed) {
     const sources = [
       ...history.filter(r => !r.knowers?.length).map(r => ({ id:r.id, from:r.sourceFrom, to:r.sourceTo, text:r.event })),
-      ...upto.map(c => ({ id:c.id, from:c.no, to:c.no, text:c.text, pinned:pinnedSet.has(c.no) })),
+      ...upto.map(c => ({ id:c.id, from:c.no, to:c.no, text:c.text, chapter:true, pinned:pinnedSet.has(c.no) })),
     ];
     const known = new Set(eligible.map(r => r.event));
     for (const r of evidenceRecords(sources, [...readers, story.protagonist?.name, ...(story.cards || []).filter(c => !c.auto?.from || c.auto.from <= anchorNo).map(c => c.name)], opts.evidenceCache).filter(visible)) {

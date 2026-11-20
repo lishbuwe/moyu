@@ -112,3 +112,13 @@ test('全知番外能够按要求从尚未整理的早期原文找回事件', ()
   assert.deepEqual(ctx.info.excerptChapters,[3]);
   assert.match(ctx.system,/那天河边的玻璃风铃碎了/);
 });
+
+test('相邻进场和私聊可在角色视角复用，切场与公开视角不接收', () => {
+  const {story,opts}=fixture();
+  const cache={};
+  const build=(scope,sep='')=>buildExtraContext(story,{...opts,scope,pov:'顾律',path:[],historyPath:[],evidenceCache:cache,chapters:[{no:1,id:'x',text:'顾律推门进来。\n'+sep+'甲对她说：“钥匙在花盆里。”'}]});
+  assert.match(build('char').system,/钥匙在花盆里/);
+  assert.match(build('char').system,/钥匙在花盆里/);
+  assert.doesNotMatch(build('public').system,/钥匙在花盆里/);
+  assert.doesNotMatch(build('char','第二天。\n').system,/钥匙在花盆里/);
+});

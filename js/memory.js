@@ -73,19 +73,36 @@ function chapterBlock(c) {
   return `【第${c.no}章${c.title ? ' · ' + c.title : ''}】\n${c.said ? '（主角：' + c.said.trim() + '）\n' : ''}${c.text}`;
 }
 
-function archivistPrompt(story, prev, batch) {
+// 只缩小这次整理要重读的副本。整表更新时，未展示给模型的条目原样保留。
+function recentRows(rows, cap, textOf = String) {
+  let chars = 0;
+  return [...(rows || [])].reverse().filter(row => {
+    const size = textOf(row).length + 2;
+    if (size + chars > cap) return false;
+    chars += size;
+    return true;
+  }).reverse();
+}
+
+export function archivistPrompt(story, prev, batch) {
   const cards = (story.cards || []).filter((c) => c.name?.trim()).map((c) => {
     const s = applyCardState(c, prev);
     return [`· ${c.name}${c.aliases?.trim() ? '（' + c.aliases.trim() + '）' : ''}`,
       c.initial?.trim() ? '  初始设定：' + c.initial.trim().slice(0, 300) : '',
       s.now?.trim() ? '  当前状态：' + s.now.trim() : '',
-      s.arc?.trim() ? '  变化轨迹：' + s.arc.trim() : '',
+      s.arc?.trim() ? '  变化轨迹：' + s.arc.trim().slice(-600) : '',
       s.relation?.trim() ? '  关系档案：' + s.relation.trim() : ''].filter(Boolean).join('\n');
   }).join('\n');
   const from = batch[0].no;
   const to = batch[batch.length - 1].no;
-  const prevText = prev.upTo ? memoryText(prev) + (prev.unsure?.length ? '\n〔待确认〕\n' + prev.unsure.map((x) => '- ' + x).join('\n') : '') : '（还没有，这是第一次整理）';
+  const visible = { ...prev, records: undefined, early: (prev.early || '').slice(0, 1800),
+    summaries: recentRows(prev.summaries, 1600, row => row.text) };
+  for (const field of ['irreversible','corrections','items','threads','knowledge','offscreen','repeats','unsure']) {
+    visible[field] = recentRows(prev[field], 700);
+  }
+  const prevText = prev.upTo ? memoryText(visible) + (visible.unsure.length ? '\n〔待确认〕\n' + visible.unsure.join('\n') : '') : '（还没有，这是第一次整理）';
   return {
+    visible,
     system: '你是这部文字互动小说的存档员。把新发生的剧情整理进前情档案：只记正文里确实发生的事，不脑补、不美化、不写感想；拿不准的放进“unsure”。只输出一个 JSON 对象，不要任何说明，也不要代码块标记。',
     user: [
       story.world?.trim() ? '【世界设定】\n' + story.world.trim().slice(0, 4000) : '',
@@ -97,7 +114,7 @@ function archivistPrompt(story, prev, batch) {
       story.memoryMode !== 'full' ? continuityArchivePrompt(prev.continuity) : '',
       `【新的剧情：第${from}–${to}章】\n` + batch.map(chapterBlock).join('\n\n'),
       '【请输出这个 JSON】\n' + JSON.stringify({
-        summary: `第${from}–${to}章的剧情摘要，300到600字。按时间顺序写具体发生了什么：谁做了什么、说了哪句关键的话、局面怎么变了。不写评价`,
+        summary: `第${from}–${to}章的剧情摘要，详略随实际变化。影响后续的选择、代价、信息差与关系转折写出前因和后果，必要时留一句原话；仅交代过渡的日常合成一句，平静的一段允许很短。无需逐章复述或凑字数`,
         irreversible: ['这一段新增的不可逆的事：受伤、失去、承诺、人情、关系越线、身份暴露……一条一件；没有就空数组'],
         items: ['新增或变化的物品、信物、特殊标记：谁给了谁什么、现在在谁手里'],
         threads: ['更新后的完整列表：未决事项、承诺、暗线、已选但未演绎完的行动，以及玩家明确保留的后续提案。标明发生状态与具体内容，不只记选项字母；未选且未保留的提案不列为待办，已经解决的删掉。资料没有对应内容时放 unsure，不脑补'],
@@ -118,7 +135,7 @@ function archivistPrompt(story, prev, batch) {
           now: '现在走到哪一步、对主角的立场、彼此怎么称呼',
           relation: '和主角的关系：相处梗、称呼、约定',
         }],
-        cards: { 角色名: { now: '现在走到哪一步、对主角的立场、彼此怎么称呼（整段重写成最新的）', arcAdd: '这一段里让他发生变化的节点：第几章、发生了什么、哪里变了哪里没变；没有就空字符串', relation: '和主角的关系档案：相处梗、称呼史、生效的约定、亲密档案。在旧的基础上合并更新，不要丢掉旧内容' } },
+        cards: { 角色名: { now: '现在走到哪一步、对主角的立场、彼此怎么称呼（整段重写成最新的）', arcAdd: '这一段里让他发生变化的节点：第几章、发生了什么、哪里变了哪里没变；没有就空字符串', relation: '和主角的关系档案：相处梗、称呼史、生效的约定、亲密档案。保留仍有影响的旧事，记关键场合、具体动作或原话和对方反应；单次试探不写成固定习惯，没确认的感情保留余地' } },
         conflicts: ['新剧情和已有设定或档案矛盾的地方（不要自己改，列出来给玩家裁决）'],
         unsure: ['拿不准的地方'],
         ...(story.memoryMode !== 'full' ? {
@@ -128,13 +145,14 @@ function archivistPrompt(story, prev, batch) {
           closeLines: [{ id: '已经解决的旧互动 id', chapter: from, quote: '本批剧情中能证明此事已经说开或解决的连续正文原句' }],
         } : {}),
       }, null, 1),
-      'cards 里只写这一段出场或有变化、而且已经有角色卡的角色，键用角色卡上的名字；还没有卡的重要新角色写进 newCharacters。memories 每条以本章为来源，能确认知情者才填写；旧事实被新事实取代时，在 replaces 里写旧条目的 ID，不能确认就不覆盖。',
+      'cards 里只写这一段出场或有变化、而且已经有角色卡的角色，键用角色卡上的名字；还没有卡的重要新角色写进 newCharacters。普通日常已在摘要交代即可。memories 记录值得以后独立找回的变化，各条标实际来源章，能确认知情者才填写；旧事实被新事实取代时，在 replaces 里写旧条目的 ID，不能确认就不覆盖。',
     ].filter(Boolean).join('\n\n'),
   };
 }
 
 function merge(prev, j, from, to, story) {
   const m = { ...emptyMemory(), ...prev };
+  if (Array.isArray(prev.records)) m.records = structuredClone(prev.records);
   m.upTo = to;
   m.summaries = [...(prev.summaries || []), { from, to, text: String(j.summary || '').trim() || '（这一段没有整理出摘要）' }];
   m.irreversible = dedupeAppend(prev.irreversible || [], arr(j.irreversible));
@@ -209,7 +227,7 @@ async function compressIfLong(m, conn, signal, track) {
   const old = m.summaries.slice(0, half);
   const user = (m.early?.trim() ? `【已有的早期概要（第1–${m.earlyUpTo}章）】\n${m.early.trim()}\n\n` : '') +
     '【要并进去的摘要】\n' + old.map((x) => `第${x.from}–${x.to}章：${x.text}`).join('\n') +
-    `\n\n把上面的内容合并压缩成一段“早期概要”（第1–${old[old.length - 1].to}章），1200到1800字：保留关键事件、关系变化、伏笔和人物的重要选择，按时间顺序，不写评价。只输出概要正文。`;
+    `\n\n把上面的内容合并压缩成一段“早期概要”（第1–${old[old.length - 1].to}章），最多1800字：优先保留仍影响现在的决定、缘由和后果、关系转折及尚未兑现的约定。已解决的支线一句交代，过场可省略，不要求各章等长。只输出概要正文。`;
   const r = await streamWithRetry(conn, { system: '你是这部文字互动小说的存档员，只输出概要正文。', messages: [{ role: 'user', content: user }], maxTokens: 4000, signal });
   track(r, user.length, '压缩前情');
   return { ...m, early: r.text.trim(), earlyUpTo: old[old.length - 1].to, summaries: m.summaries.slice(half) };
@@ -284,6 +302,11 @@ async function runInner(story, nodes, path, conn, { signal, onProgress = () => {
     }
     delete j.__repaired;
     newCards.push(...(await addNewCharacters(story, j, from, to)).map((c) => c.name));
+    for (const field of ['threads','knowledge','offscreen','repeats']) {
+      if (!Array.isArray(j[field])) continue;
+      const shown = new Set(p.visible[field]);
+      j[field] = [...new Set([...(prev[field] || []).filter(row => !shown.has(row)), ...arr(j[field])])];
+    }
     let m = merge(prev, j, from, to, story);
     if (story.memoryMode !== 'full') m.continuity = updateContinuity(prev.continuity, j, batch, nodes);
     m = await compressIfLong(m, conn, signal, track);
