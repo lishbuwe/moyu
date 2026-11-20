@@ -3,7 +3,7 @@
 
 import { db } from './db.js';
 import { streamWithRetry } from './api.js';
-import { latestCheckpoint, memoryText, applyCardState, splitNames, protagonistText } from './prompt.js';
+import { latestCheckpoint, inputBudgetChars, memoryText, applyCardState, splitNames, protagonistText } from './prompt.js';
 import { chaptersOf } from './fanwai.js';
 import { normalizeUsage, computeCost, recordUsage } from './cost.js';
 import { ensureStructured, syncStructured, addEvents } from './structured-memory.js';
@@ -228,8 +228,9 @@ async function compressIfLong(m, conn, signal, track) {
   const user = (m.early?.trim() ? `【已有的早期概要（第1–${m.earlyUpTo}章）】\n${m.early.trim()}\n\n` : '') +
     '【要并进去的摘要】\n' + old.map((x) => `第${x.from}–${x.to}章：${x.text}`).join('\n') +
     `\n\n把上面的内容合并压缩成一段“早期概要”（第1–${old[old.length - 1].to}章），最多1800字：优先保留仍影响现在的决定、缘由和后果、关系转折及尚未兑现的约定。已解决的支线一句交代，过场可省略，不要求各章等长。只输出概要正文。`;
-  const r = await streamWithRetry(conn, { system: '你是这部文字互动小说的存档员，只输出概要正文。', messages: [{ role: 'user', content: user }], maxTokens: 4000, signal });
+  const r = await streamWithRetry(conn, { system: '你是这部文字互动小说的存档员，只输出概要正文。', messages: [{ role: 'user', content: user }], maxTokens: 4000, signal }, { retries: 0 });
   track(r, user.length, '压缩前情');
+  if (r.truncated || r.interrupted || r.flagged || !r.text.trim()) return m;
   return { ...m, early: r.text.trim(), earlyUpTo: old[old.length - 1].to, summaries: m.summaries.slice(half) };
 }
 
@@ -242,20 +243,33 @@ async function compressIfLong(m, conn, signal, track) {
 const active = new Map();
 export function archivingNow(storyId) { return active.get(storyId) || null; }
 
+const pauseKey = (storyId, nodeId) => JSON.stringify(["archivePause", storyId, nodeId]);
+export const archivePause = (storyId, nodeId) => db.kvGet(pauseKey(storyId, nodeId), null);
+
 export async function runArchivist(story, nodes, path, conn, opts = {}) {
   if (active.has(story.id)) { const e = new Error('这个故事正在整理前情，等它完成再试'); e.kind = 'busy'; throw e; }
   const info = { text: '正在整理前情', ctrl: opts.ctrl || null };
   active.set(story.id, info);
   const onProgress = opts.onProgress || (() => {});
+  let pendingId;
   try {
-    return await runInner(story, nodes, path, conn, { ...opts, onProgress: (t) => { info.text = t; onProgress(t); } });
+    const chapters = pendingChapters(path);
+    const first = chapters.pending[0];
+    pendingId = first?.id;
+    if (first && opts.automatic) {
+      const paused = await archivePause(story.id, first.id);
+      if (paused) return { written: [], paused };
+    }
+    return await runInner(story, nodes, chapters, conn, { ...opts, onBatchStart: id => { pendingId = id; }, onProgress: (t) => { info.text = t; onProgress(t); } });
+  } catch (e) {
+    if (pendingId) await db.kvSet(pauseKey(story.id, pendingId), opts.signal?.aborted ? '已手动停止' : e.message || '整理失败');
+    throw e;
   } finally {
     active.delete(story.id);
   }
 }
 
-async function runInner(story, nodes, path, conn, { signal, onProgress = () => {}, minChapters = 1 } = {}) {
-  const { cp, upTo, pending } = pendingChapters(path);
+async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onBatchStart, onProgress = () => {}, minChapters = 1 } = {}) {
   if (pending.length < minChapters) return { written: [], from: 0, to: 0 };
   let prev = cp ? cp.mem : emptyMemory();
   ensureStructured(prev, cp?.node.id || '');
@@ -268,39 +282,36 @@ async function runInner(story, nodes, path, conn, { signal, onProgress = () => {
     if (c) costSum = costSum && costSum.currency === c.currency ? { ...c, amount: costSum.amount + c.amount, est: costSum.est || c.est } : c;
     recordUsage({ kind, storyId: story.id, model: conn?.model || '', usage: u, cost: c });
   };
-  const queue = [];
   const batchSize = Number(story.memEvery) === 1 ? 1 : BATCH;
-  for (let i = 0; i < pending.length; i += batchSize) queue.push(pending.slice(i, i + batchSize));
-  while (queue.length) {
-    const batch = queue.shift();
+  const budget = inputBudgetChars(conn);
+  for (let i = 0; i < pending.length;) {
+    const batch = pending.slice(i, i + batchSize);
+    onBatchStart(batch[0].id);
+    let p = archivistPrompt(story, prev, batch);
+    while (p.system.length + p.user.length > budget && batch.length > 1) {
+      batch.pop();
+      p = archivistPrompt(story, prev, batch);
+    }
     const from = batch[0].no;
     const to = batch[batch.length - 1].no;
+    if (p.system.length + p.user.length > budget) throw new Error(`第 ${from} 章连同档案超过连接的输入预算（${budget} 字），请调高预算后继续整理`);
     onProgress(`正在整理第 ${from}–${to} 章`);
-    const p = archivistPrompt(story, prev, batch);
-    let r;
-    let raw = '';
-    r = await streamWithRetry(conn, {
+    const r = await streamWithRetry(conn, {
       system: p.system, messages: [{ role: 'user', content: p.user }], maxTokens: 16000, signal,
-      onText: (_d, full) => { raw = full; onProgress(`正在整理第 ${from}–${to} 章（已写 ${full.length} 字）`); },
-    });
-    raw = r.text;
+      onText: (_d, full) => onProgress(`正在整理第 ${from}–${to} 章（已写 ${full.length} 字）`),
+    }, { retries: 0 });
+    const raw = r.text;
     track(r, p.system.length + p.user.length);
     let j;
     try { j = parseJson(raw); } catch { j = null; }
-    // 写不完被截断：章数多就拆成两半重来；只剩一两章还不行才报错
-    if ((!j || (j.__repaired && r.truncated)) && batch.length > 2) {
-      const half = Math.ceil(batch.length / 2);
-      queue.unshift(batch.slice(0, half), batch.slice(half));
-      onProgress(`第 ${from}–${to} 章一次写不完，拆开重新整理`);
-      continue;
-    }
-    if (!j) {
-      const e = new Error('存档员返回的格式看不懂，可以重试或换个模型');
+    if (!j || j.__repaired || r.truncated || typeof j.summary !== 'string' || !j.summary.trim()) {
+      const reason = r.truncated ? '回复达到输出上限' : '回复未包含完整有效的剧情摘要';
+      const e = new Error(`第 ${from}–${to} 章整理已暂停：${reason}`);
       e.detail = (raw.length > 1500 ? raw.slice(0, 700) + '\n……\n' + raw.slice(-700) : raw);
       e.hint = r.truncated ? '回复写到输出上限被截断了。可以在连接里把“输出上限”调大，或者换个不开思考的模型来整理。' : '';
       throw e;
     }
-    delete j.__repaired;
+    signal?.throwIfAborted();
     newCards.push(...(await addNewCharacters(story, j, from, to)).map((c) => c.name));
     for (const field of ['threads','knowledge','offscreen','repeats']) {
       if (!Array.isArray(j[field])) continue;
@@ -314,9 +325,12 @@ async function runInner(story, nodes, path, conn, { signal, onProgress = () => {
     addEvents(m, j.memories, from, to, batch[batch.length - 1].id);
     m.lastRun = { at: Date.now(), from, to, model: conn?.model || '', cost: costSum };
     const node = nodes.get(batch[batch.length - 1].id);
-    if (!node) break;
+    if (!node) throw new Error(`无法保存第 ${to} 章，找不到章节节点`);
+    signal?.throwIfAborted();
+    await db.put('nodes', { ...node, checkpoint: m });
     node.checkpoint = m;
-    await db.put('nodes', node);
+    if (await archivePause(story.id, batch[0].id)) await db.del('kv', pauseKey(story.id, batch[0].id));
+    i += batch.length;
     // 通知当前打开的页面：它手里的同一节点对象要补上这份档案，免得之后保存时把档案覆盖掉
     try { window.dispatchEvent(new CustomEvent('moyu:checkpoint', { detail: { storyId: story.id, nodeId: node.id, mem: m } })); } catch {}
     written.push(node);

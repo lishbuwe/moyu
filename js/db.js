@@ -61,7 +61,7 @@ function reportWriteError(e) {
 }
 
 function readStory(story) {
-  if (story && Number(story.memEvery) === 1 && !story.memEveryExplicit) story.memEvery = 15;
+  if (story && [1, 15].includes(Number(story.memEvery)) && !story.memEveryExplicit) story.memEvery = 10;
   return story;
 }
 

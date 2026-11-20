@@ -670,9 +670,10 @@ export async function render(root, { id }) {
     updateComposer();
     try {
       const r = await runArchivist(story, nodes, headPath(), conn, {
-        signal: ctrl.signal, ctrl,
+        signal: ctrl.signal, ctrl, automatic: !force,
         onProgress: (t) => { if (st.archiving) { st.archiving.text = t; updateComposer(); } },
       });
+      if (r.paused) st.archiveError = r.paused;
       if (r.newCards?.length) toast(`前情已整理到第 ${r.to} 章，新登场的 ${r.newCards.join('、')} 已经建了角色卡（底部“角色”里过目）`, 5000);
       else if (r.written.length) toast(`前情已整理到第 ${r.to} 章，点“记忆”可以查看和修改`, 3500);
     } catch (e) {

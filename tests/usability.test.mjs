@@ -1030,8 +1030,8 @@ test('已存档思考标签在正文和番外原文/排版阅读中隐藏，原�
   try{assert.ok(!root.textContent.includes('EXTRA_SECRET'));assert.ok(root.querySelector('.ex-bubble'));button('原文').click();assert.ok(!root.querySelector('.extra-raw').textContent.includes('EXTRA_SECRET'));assert.ok((await db.get('extras','tagged-extra')).versions[0].text.includes('EXTRA_SECRET'));}finally{end();}
 });
 
-test('旧默认每章整理调整到十五章，保留关闭、自定义间隔和重新选定的一章', async () => {
-  for (const [value, explicit, expected] of [[1,false,15],[1,true,1],[0,false,0],[7,false,7]]) {
+test('旧默认整理周期调整到十章，保留关闭、自定义间隔和重新选定的一章', async () => {
+  for (const [value, explicit, expected] of [[1,false,10],[15,false,10],[15,true,15],[1,true,1],[0,false,0],[7,false,7]]) {
     await db.put('stories', { id: 'interval', memEvery: value, memEveryExplicit: explicit });
     assert.equal((await db.get('stories', 'interval')).memEvery, expected);
     assert.equal((await db.all('stories'))[0].memEvery, expected);
@@ -1125,4 +1125,43 @@ test('多批草稿失败后续跑，只重发未完成批次',async()=>{
     assert.deepEqual(requests[1].body.messages,requests[2].body.messages);
     assert.ok(!(await db.get('nodes','a1')).memoryEdition);
   }finally{end();}
+});
+
+test('积压从第33章续存，失败后新增正文不会重复发请求，手动恢复分批写入', async () => {
+  const { story } = await seedStory();
+  story.memEvery = 10;
+  const path = Array.from({ length: 55 }, (_, i) => ({
+    id: 'archive-' + (i + 1), storyId: story.id, role: 'assistant',
+    status: 'done', kind: 'play', text: '他把信放回桌上。',
+  }));
+  const { emptyMemory } = await import('../js/memory.js');
+  path[31].checkpoint = { ...emptyMemory(), upTo: 32 };
+  await db.putMany('nodes', path);
+  const nodes = new Map(path.map(n => [n.id, n]));
+  const conn = await db.get('connections', 'qa-conn');
+  responses.push('{"summary":"没写完');
+  await assert.rejects(runArchivist(story, nodes, path, conn, { automatic: true }), /已暂停/);
+  path.push({ ...path[54], id: 'archive-56' });
+  nodes.set(path[55].id, path[55]);
+  assert.ok((await runArchivist(story, nodes, path, conn, { automatic: true })).paused);
+  assert.equal(requests.length, 1);
+  assert.equal((await db.get('nodes', path[31].id)).checkpoint.upTo, 32);
+  responses.push('{"summary":"第一批"}', '{}');
+  await assert.rejects(runArchivist(story, nodes, path, conn), /第 43–52 章/);
+  assert.equal((await db.get('nodes', path[41].id)).checkpoint.upTo, 42);
+  assert.ok((await runArchivist(story, nodes, path, conn, { automatic: true })).paused);
+  assert.equal(requests.length, 3);
+  responses.push('{"summary":"第二批"}', '{"summary":"第三批"}');
+  const result = await runArchivist(story, nodes, path, conn);
+  assert.deepEqual(result.written.map(n => n.checkpoint.upTo), [52, 56]);
+  assert.equal((await db.get('nodes', path[55].id)).checkpoint.lastRun.from, 53);
+});
+
+test('过长单章在发送前提示输入预算，旧档仍可读取', async () => {
+  const { story, nodes } = await seedStory();
+  nodes[1].text = '一句正文。'.repeat(1500);
+  const conn = { ...await db.get('connections', 'qa-conn'), inputBudgetChars: 6000 };
+  await assert.rejects(runArchivist(story, new Map(nodes.map(n => [n.id, n])), nodes, conn), /第 1 章.*6000/);
+  assert.equal(requests.length, 0);
+  assert.equal((await db.get('nodes', 'a1')).checkpoint, undefined);
 });
