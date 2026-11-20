@@ -1080,8 +1080,8 @@ test('旧记忆整合预览、应用、分支回退和还原，保留动机与�
   ensureStructured(checkpoint,'a1');
   nodes[1].checkpoint=checkpoint;
   await db.put('nodes',nodes[1]);
-  const answer='贺嘉衡让嘉树站柜台，是为了锻炼他接待顾客。';
-  responses.push(JSON.stringify({check:[0]}),JSON.stringify({groups:[{rows:[0],kind:'转折',text:answer}],doubts:[]}));
+  const answer='贺嘉衡让嘉树站柜台练接待。';
+  responses.push(JSON.stringify({groups:[{rows:[0],kind:'转折',text:answer}],doubts:[]}));
   const end=await render(root,{id:story.id});
   try{
     button('整合已有记忆').click();
@@ -1089,7 +1089,7 @@ test('旧记忆整合预览、应用、分支回退和还原，保留动机与�
     assert.equal(requests.length,0);
     button('生成草稿').click();
     await wait(()=>button('应用整合版'));
-    assert.equal(requests.length,2);
+    assert.equal(requests.length,1);
     assert.equal((await db.get('nodes','a1')).memoryEdition,undefined);
     button('应用整合版').click();
     await wait(async()=>!!(await db.get('nodes','a1')).memoryEdition);
@@ -1099,6 +1099,7 @@ test('旧记忆整合预览、应用、分支回退和还原，保留动机与�
     assert.deepEqual(applied.checkpoint,checkpoint);
     assert.ok(!(await context(nodes[1])).includes(answer));
     await wait(()=>!document.querySelector('.sheet'));
+    assert.ok([...root.querySelectorAll('textarea')].some(t => t.readOnly && t.value === answer));
     button('整合已有记忆').click();await wait(()=>button('还原原档'));
     button('还原原档').click();
     await wait(async()=>(await db.get('nodes','a1')).memoryEdition===null);
@@ -1123,6 +1124,18 @@ test('多批草稿失败后续跑，只重发未完成批次',async()=>{
     button('继续整合').click();await wait(()=>document.body.textContent.includes('没有可合并的建议'));
     assert.equal(requests.length,3);
     assert.deepEqual(requests[1].body.messages,requests[2].body.messages);
+    document.querySelector('.sheet [aria-label="关闭"]').click();
+    // 同一故事的新档案版本：其他栏目发生变化，相同的整合批次应全部命中本地结果。
+    cp.edited = 123;
+    await db.put('nodes',nodes[1]);
+    end();
+    root.replaceChildren();
+    const closeAgain = await render(root,{id:story.id});
+    try {
+      button('整合已有记忆').click(); await wait(()=>button('生成草稿'));
+      button('生成草稿').click(); await wait(()=>document.body.textContent.includes('没有可合并的建议'));
+      assert.equal(requests.length,3);
+    } finally { closeAgain(); }
     assert.ok(!(await db.get('nodes','a1')).memoryEdition);
   }finally{end();}
 });
@@ -1164,4 +1177,13 @@ test('过长单章在发送前提示输入预算，旧档仍可读取', async ()
   await assert.rejects(runArchivist(story, new Map(nodes.map(n => [n.id, n])), nodes, conn), /第 1 章.*6000/);
   assert.equal(requests.length, 0);
   assert.equal((await db.get('nodes', 'a1')).checkpoint, undefined);
+});
+
+test('整合草稿略过更长的改写，保留可压缩的建议',async()=>{
+  const {parseSuggestions}=await import('../js/consolidation.js');
+  const result=parseSuggestions(JSON.stringify({groups:[
+    {rows:[0],kind:'日常',text:'他在第二天到车站赴约。'},
+    {rows:[1],kind:'转折',text:'他决定赴约。'},
+  ]}),[{id:'a',event:'他赴约。'},{id:'b',event:'他犹豫了一夜，最后决定赴约。'}]);
+  assert.deepEqual(result.groups.map(g=>g.sources[0].id),['b']);
 });

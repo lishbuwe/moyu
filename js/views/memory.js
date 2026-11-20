@@ -5,6 +5,7 @@ import { el, toast, sheet } from '../util.js';
 import { resolveConnection, getConnections, connLabel, go, setCurrentStory, watchStory, PLAY_KEYS } from '../state.js';
 import { latestCheckpoint } from '../prompt.js';
 import { pendingChapters, runArchivist, archivePause, BATCH, archivingNow } from '../memory.js';
+import { activeEdition, editionMemory } from '../consolidation.js';
 import { openEdition } from './memory-edition.js';
 import { fmtMoney } from '../cost.js';
 import { migrateCheckpoints, projectColumns, syncStructured } from '../structured-memory.js';
@@ -38,6 +39,7 @@ export async function render(root, { id }) {
   let running = null;
   let destroyed = false;
   let statusEl = null;
+  let showOriginal = false;
 
   const sub = el('div', { class: 'sub' });
   const wrap = el('div', { class: 'wrap' });
@@ -98,7 +100,7 @@ export async function render(root, { id }) {
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '使用旧整包档案模式', el('small', { text: '关闭时，正文会按场景接续，并引用还在发展的较早互动。' })), mode),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '最近保留几章原文', el('small', { text: '按场景接续时的保底章数，预算允许时会带上更多相关原文。' })), recent),
       el('div', { class: 'row' }, runBtn, (running || ext)?.ctrl ? el('button', { class: 'btn small', onclick: () => (running || ext).ctrl.abort() }, '停止整理') : null, redoBtn, cp && !running && !ext ? el('button', { class:'btn small', onclick:async () => {
-        try { await openEdition(story,path,cp,await archiveConn(story),reload); } catch (e) { toast(e.message); }
+        try { await openEdition(story,path,cp,await archiveConn(story),async () => { showOriginal = false; await reload(); }); } catch (e) { toast(e.message); }
       } }, '整合已有记忆') : null), status));
     if (running) status.textContent = running.text + '（可以离开这页，整理会在后台继续）';
     else if (ext) status.textContent = ext.text + '（游玩页在后台整理，完成后这里会自动刷新）';
@@ -116,7 +118,15 @@ export async function render(root, { id }) {
       return;
     }
 
-    const m = cp.mem;
+    const effective = editionMemory(cp.mem, activeEdition(path));
+    const readOnly = effective !== cp.mem && !showOriginal;
+    if (effective !== cp.mem) {
+      wrap.append(el('div', { class: 'row' },
+        el('strong', { text: readOnly ? '正文使用中的整合版' : '原始档案' }),
+        el('button', { class: 'btn small', onclick: () => { showOriginal = !showOriginal; draw(); } },
+          readOnly ? '查看或编辑原档' : '查看生效版')));
+    }
+    const m = readOnly ? effective : cp.mem;
     const shown = projectColumns(m);
     const fields = {};
     const listArea = (key, label, hint = '') => {
@@ -136,7 +146,7 @@ export async function render(root, { id }) {
 
     const last = m.lastRun;
     wrap.append(el('div', { class: 'hint', style: { margin: '14px 2px 6px' } },
-      `下面是当前这条线上最新的一份档案（第 1–${m.upTo} 章）。分层模式会按需取用，整包模式会发送全部；改了下一轮生效。` +
+      `下面是当前这条线上最新的一份档案（第 1–${m.upTo} 章）。分层模式会按需取用，整包模式会发送全部。` +
       (last ? ` 上次整理：第 ${last.from}–${last.to} 章${last.model ? '，用 ' + last.model : ''}${last.cost ? '，' + fmtMoney(last.cost) : ''}。` : '')));
 
     if ((m.unsure?.length || 0) + (m.conflicts?.length || 0) > 0) {
@@ -147,7 +157,7 @@ export async function render(root, { id }) {
     }
 
     wrap.append(el('div', { class: 'section-title', text: '剧情' }), el('div', { class: 'card' },
-      m.early?.trim() || m.earlyUpTo ? el('div', { class: 'field' }, el('label', { text: `早期概要（第 1–${m.earlyUpTo} 章，摘要太长时自动压缩而来）` }), early) : null,
+      shown.early?.trim() ? el('div', { class: 'field' }, el('label', { text: `早期概要（第 1–${m.earlyUpTo} 章，摘要太长时自动压缩而来）` }), early) : null,
       ...sums.map(({ x, ta }) => el('div', { class: 'field' }, el('label', { text: `第 ${x.from}–${x.to} 章` }), ta)),
       listArea('irreversible', '不可逆的事（永久保留，不会被压缩）'),
       listArea('corrections', '勘误（和上面冲突时以这里为准）', '改了早期章节的事实、或者发现档案记错了，写在这里。'),
@@ -166,6 +176,10 @@ export async function render(root, { id }) {
           el('div', { class: 'field' }, el('label', { text: '变化轨迹' }), c.arc),
           el('div', { class: 'field' }, el('label', { text: '关系档案' }), c.rel)));
       }
+    }
+    if (readOnly) {
+      for (const ta of wrap.querySelectorAll('textarea')) ta.readOnly = true;
+      return;
     }
     const lines = (ta) => ta.value.split('\n').map((l) => l.trim()).filter(Boolean);
     wrap.append(el('div', { class: 'row', style: { margin: '10px 0 30px' } },
