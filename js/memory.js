@@ -2,7 +2,7 @@
 // 档案挂在某一章的回复节点上（node.checkpoint）。回退、开分支时，自动用当前这条线上最近的那份。
 
 import { db } from './db.js';
-import { streamWithRetry } from './api.js';
+import { memoryRequest } from './memory-request.js';
 import { latestCheckpoint, inputBudgetChars, memoryText, applyCardState, splitNames, protagonistText } from './prompt.js';
 import { chaptersOf } from './fanwai.js';
 import { normalizeUsage, computeCost, recordUsage } from './cost.js';
@@ -220,7 +220,7 @@ async function addNewCharacters(story, j, from, to) {
   return added;
 }
 
-async function compressIfLong(m, conn, signal, track) {
+async function compressIfLong(m, conn, signal, track, key) {
   const total = (m.summaries || []).reduce((a, x) => a + x.text.length, 0);
   if (total <= SUMMARY_LIMIT || m.summaries.length < 3) return m;
   const half = Math.ceil(m.summaries.length / 2);
@@ -228,7 +228,7 @@ async function compressIfLong(m, conn, signal, track) {
   const user = (m.early?.trim() ? `【已有的早期概要（第1–${m.earlyUpTo}章）】\n${m.early.trim()}\n\n` : '') +
     '【要并进去的摘要】\n' + old.map((x) => `第${x.from}–${x.to}章：${x.text}`).join('\n') +
     `\n\n把上面的内容合并压缩成一段“早期概要”（第1–${old[old.length - 1].to}章），最多1800字：优先保留仍影响现在的决定、缘由和后果、关系转折及尚未兑现的约定。已解决的支线一句交代，过场可省略，不要求各章等长。只输出概要正文。`;
-  const r = await streamWithRetry(conn, { system: '你是这部文字互动小说的存档员，只输出概要正文。', messages: [{ role: 'user', content: user }], maxTokens: 4000, signal }, { retries: 0 });
+  const r = await memoryRequest(key, conn, { system: '你是这部文字互动小说的存档员，只输出概要正文。', messages: [{ role: 'user', content: user }], maxTokens: 4000, signal });
   track(r, user.length, '压缩前情');
   if (r.truncated || r.interrupted || r.flagged || !r.text.trim()) return m;
   return { ...m, early: r.text.trim(), earlyUpTo: old[old.length - 1].to, summaries: m.summaries.slice(half) };
@@ -244,7 +244,24 @@ const active = new Map();
 export function archivingNow(storyId) { return active.get(storyId) || null; }
 
 const pauseKey = (storyId, nodeId) => JSON.stringify(["archivePause", storyId, nodeId]);
-export const archivePause = (storyId, nodeId) => db.kvGet(pauseKey(storyId, nodeId), null);
+export async function archivePause(storyId, nodeId) {
+  const reason = await db.kvGet(pauseKey(storyId,nodeId),null);
+  if (reason) return reason;
+  const task = await db.kvGet(taskKey(storyId,nodeId),null);
+  const phase = task?.result ? await db.kvGet(taskKey(storyId,nodeId) + '.compress',null) : task;
+  return phase && !phase.job && !phase.result ? '上一批请求中断，尚未保存。可手动重试。' : null;
+}
+
+const taskKey = (storyId, nodeId) => JSON.stringify(['archiveTask', storyId, nodeId]);
+export async function archiveRecovery(storyId, firstId) {
+  if (!firstId) return false;
+  const key = taskKey(storyId, firstId);
+  const task = await db.kvGet(key, null);
+  if (!task) return false;
+  const phase = await db.kvGet(key + '.compress', null);
+  if (phase) return !!phase.job || !!phase.result;
+  return task.result ? !(await archivePause(storyId, firstId)) : !!task.job;
+}
 
 export async function runArchivist(story, nodes, path, conn, opts = {}) {
   if (active.has(story.id)) { const e = new Error('这个故事正在整理前情，等它完成再试'); e.kind = 'busy'; throw e; }
@@ -256,7 +273,7 @@ export async function runArchivist(story, nodes, path, conn, opts = {}) {
     const chapters = pendingChapters(path);
     const first = chapters.pending[0];
     pendingId = first?.id;
-    if (first && opts.automatic) {
+    if (first && opts.automatic && !(await archiveRecovery(story.id, first.id))) {
       const paused = await archivePause(story.id, first.id);
       if (paused) return { written: [], paused };
     }
@@ -285,23 +302,28 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
   const batchSize = Number(story.memEvery) === 1 ? 1 : BATCH;
   const budget = inputBudgetChars(conn);
   for (let i = 0; i < pending.length;) {
-    const batch = pending.slice(i, i + batchSize);
+    const key = taskKey(story.id, pending[i].id);
+    const saved = await db.kvGet(key, null);
+    const batch = pending.slice(i, i + (saved?.ids?.length || batchSize));
+    if (saved?.ids && saved.ids.some((id,index) => id !== batch[index]?.id)) {
+      throw Error('该批次属于另一条剧情分支，请回到原分支接回');
+    }
     onBatchStart(batch[0].id);
     let p = archivistPrompt(story, prev, batch);
-    while (p.system.length + p.user.length > budget && batch.length > 1) {
+    while (!saved && p.system.length + p.user.length > budget && batch.length > 1) {
       batch.pop();
       p = archivistPrompt(story, prev, batch);
     }
     const from = batch[0].no;
     const to = batch[batch.length - 1].no;
-    if (p.system.length + p.user.length > budget) throw new Error(`第 ${from} 章连同档案超过连接的输入预算（${budget} 字），请调高预算后继续整理`);
+    if (!saved && p.system.length + p.user.length > budget) throw new Error(`第 ${from} 章连同档案超过连接的输入预算（${budget} 字），请调高预算后继续整理`);
     onProgress(`正在整理第 ${from}–${to} 章`);
-    const r = await streamWithRetry(conn, {
+    const r = await memoryRequest(key, conn, {
       system: p.system, messages: [{ role: 'user', content: p.user }], maxTokens: 16000, signal,
       onText: (_d, full) => onProgress(`正在整理第 ${from}–${to} 章（已写 ${full.length} 字）`),
-    }, { retries: 0 });
+    }, { ids: batch.map(c => c.id) });
     const raw = r.text;
-    track(r, p.system.length + p.user.length);
+    if (!saved?.result) track(r, p.system.length + p.user.length);
     let j;
     try { j = parseJson(raw); } catch { j = null; }
     if (!j || j.__repaired || r.truncated || typeof j.summary !== 'string' || !j.summary.trim()) {
@@ -309,10 +331,10 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
       const e = new Error(`第 ${from}–${to} 章整理已暂停：${reason}`);
       e.detail = (raw.length > 1500 ? raw.slice(0, 700) + '\n……\n' + raw.slice(-700) : raw);
       e.hint = r.truncated ? '回复写到输出上限被截断了。可以在连接里把“输出上限”调大，或者换个不开思考的模型来整理。' : '';
+      await db.del('kv', key);
       throw e;
     }
     signal?.throwIfAborted();
-    newCards.push(...(await addNewCharacters(story, j, from, to)).map((c) => c.name));
     for (const field of ['threads','knowledge','offscreen','repeats']) {
       if (!Array.isArray(j[field])) continue;
       const shown = new Set(p.visible[field]);
@@ -320,7 +342,7 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
     }
     let m = merge(prev, j, from, to, story);
     if (story.memoryMode !== 'full') m.continuity = updateContinuity(prev.continuity, j, batch, nodes);
-    m = await compressIfLong(m, conn, signal, track);
+    m = await compressIfLong(m, conn, signal, track, key + '.compress');
     syncStructured(m, m, { from, to, branchId: batch[batch.length - 1].id, metadata: j.memories });
     addEvents(m, j.memories, from, to, batch[batch.length - 1].id);
     m.lastRun = { at: Date.now(), from, to, model: conn?.model || '', cost: costSum };
@@ -329,6 +351,10 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
     signal?.throwIfAborted();
     await db.put('nodes', { ...node, checkpoint: m });
     node.checkpoint = m;
+    await db.del('kv', key);
+    await db.del('kv', key + '.compress');
+    newCards.push(...(await addNewCharacters(story, j, from, to)).map((c) => c.name));
+
     if (await archivePause(story.id, batch[0].id)) await db.del('kv', pauseKey(story.id, batch[0].id));
     i += batch.length;
     // 通知当前打开的页面：它手里的同一节点对象要补上这份档案，免得之后保存时把档案覆盖掉

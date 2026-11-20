@@ -1,25 +1,29 @@
 import { db } from '../db.js';
 import { el, sheet, toast } from '../util.js';
-import { streamWithRetry } from '../api.js';
+import { memoryRequest } from '../memory-request.js';
 import { computeCost, normalizeUsage, recordUsage } from '../cost.js';
 import { inputBudgetChars } from '../prompt.js';
 import { activeEdition, consolidationBatches, editorGuide, parseSuggestions } from '../consolidation.js';
 
-export async function openEdition(story, path, cp, conn, reload) {
+export async function openEdition(story, path, cp, conn, reload, { resumeOnly = false } = {}) {
   const anchor = path.at(-1).id;
-  const expected = JSON.stringify(cp.mem);
-  const batches = consolidationBatches(cp.mem);
   const key = 'memoryDraft.' + story.id + '.' + cp.node.id;
   async function fingerprint(value) {
     const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
     return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2,'0')).join('');
   }
-  const sourceVersion = await fingerprint(expected);
   const previous = await db.kvGet(key, null);
+  if (resumeOnly && (!previous || !await db.kvGet(key + '.request.' + previous.sourceVersion, null))) return;
+  const expected = JSON.stringify(cp.mem);
+  const batches = consolidationBatches(cp.mem);
+  const sourceVersion = await fingerprint(expected);
   const draft = previous?.sourceVersion === sourceVersion ? previous : { sourceVersion, done:0, groups:[], doubts:[] };
+  const requestKey = key + '.request.' + sourceVersion;
+  const interrupted = await db.kvGet(requestKey,null);
+  if (resumeOnly && (!interrupted || interrupted.batch !== draft.done || !(interrupted.job || interrupted.result))) return;
   const edition = activeEdition(path);
   let ctrl, closed = false;
-  const panel = sheet({title:'整合已有记忆', onClose:() => { closed = true; ctrl?.abort('user'); }});
+  const panel = sheet({title:'整合已有记忆', onClose:() => { closed = true; document.removeEventListener('visibilitychange',recover); ctrl?.abort('leave'); }});
   const hint = el('div',{class:'hint'});
   const preview = el('div');
   panel.body.append(hint, preview);
@@ -36,6 +40,7 @@ export async function openEdition(story, path, cp, conn, reload) {
   };
   function draw() {
     hint.textContent = (edition ? '当前正文使用整合版。' : '当前正文使用原档。') + '第1–' + cp.mem.upTo + '章 · '+ batches.flat().length +' 条候选 · '+draft.done+'/'+batches.length+' 批。每个新批次最多调用一次，已处理的相同批次直接复用。使用 '+(conn?.model || '未选择连接')+'。关闭后可继续。';
+    if (interrupted && !interrupted.job && !interrupted.result && interrupted.batch === draft.done && !ctrl) hint.textContent += ' 此批中断，可手动继续。';
     preview.replaceChildren(); panel.foot.replaceChildren();
     if (ctrl) {panel.foot.append(button('暂停',async()=>ctrl.abort('user')));return;}
     if (draft.done < batches.length && conn) panel.foot.append(button(draft.done ? '继续整合' : '生成草稿',run));
@@ -60,8 +65,9 @@ export async function openEdition(story, path, cp, conn, reload) {
     if (ctrl) return;
     ctrl = new AbortController(); draw();
     async function ask(user, sourceChars) {
+      await db.kvSet(key, draft);
       if (user.length + editorGuide.length > inputBudgetChars(conn)) throw Error('此批超过连接输入预算，可提高整理连接的输入预算后继续');
-      const result = await streamWithRetry(conn,{system:editorGuide,messages:[{role:'user',content:user}],signal:ctrl.signal,maxTokens:Math.min(4000, 300 + sourceChars * 2)},{retries:0});
+      const result = await memoryRequest(requestKey,conn,{system:editorGuide,messages:[{role:'user',content:user}],signal:ctrl.signal,maxTokens:Math.min(4000, 300 + sourceChars * 2)},{batch:draft.done});
       const usage = normalizeUsage(result.usage,{inChars:user.length+editorGuide.length,outChars:result.text.length});
       await recordUsage({kind:'整合旧记忆',storyId:story.id,model:conn.model,usage,cost:computeCost(usage,conn)});
       return result.text;
@@ -74,14 +80,25 @@ export async function openEdition(story, path, cp, conn, reload) {
         let result = await db.kvGet(cacheKey, null);
         if (!result) {
           const raw = await ask(user, batch.reduce((n, r) => n + r.event.length, 0));
-          result = parseSuggestions(raw,batch);
+          try { result = parseSuggestions(raw,batch); } catch (e) { await db.del('kv',requestKey); throw e; }
           await db.kvSet(cacheKey,result);
         }
         const next = {...draft, done:draft.done+1, groups:[...draft.groups,...result.groups], doubts:[...draft.doubts,...result.doubts]};
         await db.kvSet(key,next); Object.assign(draft,next);
+        await db.del('kv',requestKey);
         if (!closed) draw();
       }
     } finally { ctrl=null; }
   }
   draw();
+  async function recover() {
+    if (ctrl || closed || document.visibilityState !== 'visible') return;
+    const pending = await db.kvGet(requestKey,null);
+    if (!closed && conn && pending?.batch === draft.done && (pending.job || pending.result)) {
+      try { await run(); } catch (e) { if (!closed) toast(e.message); }
+      if (!closed) draw();
+    }
+  }
+  document.addEventListener('visibilitychange',recover);
+  await recover();
 }

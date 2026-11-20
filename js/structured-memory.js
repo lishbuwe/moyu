@@ -160,7 +160,9 @@ export function retrieveRecords(records, query, { at = Infinity, scope = 'all', 
   return result;
 }
 
-export function layeredMemory(mem, query, { at = mem?.upTo || 0, coreChars = 2300, stateChars = 900, retrieveChars = 4000, scope = 'all', pov = '', requireMatch = false } = {}) {
+export const coreFact = r => r.irreversible || ['correction', 'knowledge'].includes(r.type);
+
+export function layeredMemory(mem, query, { at = mem?.upTo || 0, coreChars = 2300, stateChars = 900, retrieveChars = 4000, scope = 'all', pov = '', requireMatch = false, prioritizeCore = false } = {}) {
   const all = activeRecords(mem, at);
   const seen = new Set();
   const fit = (list, cap) => {
@@ -175,12 +177,15 @@ export function layeredMemory(mem, query, { at = mem?.upTo || 0, coreChars = 230
     }
     return out;
   };
-  const coreWanted = all.filter((r) => r.irreversible || ['correction', 'knowledge'].includes(r.type))
+  const coreWanted = all.filter(coreFact)
     .sort((a, b) => (b.importance || 0) - (a.importance || 0) || b.sourceTo - a.sourceTo);
   const core = fit(coreWanted, coreChars);
   const state = fit(all.filter((r) => ['thread', 'item'].includes(r.type))
     .sort((a, b) => b.sourceTo - a.sourceTo), stateChars);
-  const recalled = retrieveRecords(all, query, { at, scope, pov, limitChars: retrieveChars, requireMatch, omit: [...core, ...state] });
+  const options = { at, scope, pov, limitChars: retrieveChars, requireMatch, omit: [...core, ...state] };
+  const priority = prioritizeCore ? retrieveRecords(coreWanted, query, options) : [];
+  const recalled = [...priority, ...retrieveRecords(all, query, { ...options, omit: [...options.omit, ...priority],
+    limitChars: retrieveChars - priority.reduce((n,r) => n + r.event.length + 14, 0) })];
   const line = (r) => `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`;
   return { core: core.map(line).join('\n'), state: state.map(line).join('\n'), recalled: recalled.map(line).join('\n'),
     hits: recalled.map((r) => ({ id: r.id, from: r.sourceFrom, to: r.sourceTo })),

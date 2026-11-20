@@ -1187,3 +1187,75 @@ test('整合草稿略过更长的改写，保留可压缩的建议',async()=>{
   ]}),[{id:'a',event:'他赴约。'},{id:'b',event:'他犹豫了一夜，最后决定赴约。'}]);
   assert.deepEqual(result.groups.map(g=>g.sources[0].id),['b']);
 });
+
+test('整理转发断线后重进记忆页接回同一任务，只保存一次',async()=>{
+  const story=await seedRelayExtra();
+  const conn=await db.get('connections','qa-conn');
+  const nodes=(await db.byStory(story.id)).sort((a,b)=>a.createdAt-b.createdAt);
+  let offline=true;
+  const calls=extraRelayMock(()=> {
+    if(offline) throw new TypeError('offline');
+    return extraSSE('{"summary":"他还记得那本书。"}');
+  });
+  await assert.rejects(runArchivist(story,new Map(nodes.map(n=>[n.id,n])),nodes,conn));
+  offline=false;
+  const {render}=await import('../js/views/memory.js');
+  const close=await render(root,{id:story.id});
+  try {
+    await wait(async()=>(await db.get('nodes','a1')).checkpoint?.runs===1);
+    assert.equal(calls.filter(c=>c.url.endsWith('/jobs')).length,1);
+    assert.equal(calls.filter(c=>c.method==='DELETE').length,0);
+    assert.ok(root.querySelector('details > summary'));
+  } finally {close();}
+});
+
+test('核心栏装不下时，相关关键事实进入最终请求并计入补回数',()=>{
+  const facts=Array.from({length:45},(_,i)=>({id:'r'+i,column:'irreversible',type:'fact',event:'旧事'+String(i).padStart(2,'0')+'。'.repeat(115)+'终',sourceFrom:i+1,sourceTo:i+1,irreversible:true,importance:5,tags:i===0?['速写本']:[]}));
+  const path=[{id:'a',role:'assistant',text:'他到了。',checkpoint:{upTo:45,records:facts,cards:{}}},{id:'u',role:'user',text:'拿出速写本。'}];
+  const ctx=buildContext({cards:[]},path,{budgetChars:6000});
+  assert.equal(ctx.info.coreOmitted,29);
+  assert.equal(ctx.info.coreRecalled,1);
+  assert.equal(ctx.info.coreIncluded,16);
+  assert.ok(ctx.system.includes(facts[0].event));
+  assert.ok(ctx.info.totalChars<=6000);
+});
+
+test('整合时只切到其他 App 再回来，接回原任务，草稿仍可应用',async()=>{
+  const story=await seedRelayExtra();
+  const {ensureStructured}=await import('../js/structured-memory.js');
+  const node=await db.get('nodes','a1');
+  node.checkpoint={upTo:1,summaries:[{from:1,to:1,text:'他延迟出发，在车站等到了她。'}]};
+  ensureStructured(node.checkpoint,'a1');await db.put('nodes',node);
+  let streams=0;
+  const calls=extraRelayMock(init=>++streams===1 ? extraSSE('',{signal:init.signal,hang:true})
+    : extraSSE('{"groups":[{"rows":[0],"kind":"转折","text":"他在车站等她。"}]}'));
+  const {render}=await import('../js/views/memory.js');
+  const close=await render(root,{id:story.id});
+  try {
+    button('整合已有记忆').click();await wait(()=>button('生成草稿'));button('生成草稿').click();
+    await wait(()=>streams===1);
+    for(const value of ['hidden','visible']) {
+      Object.defineProperty(document,'visibilityState',{configurable:true,value});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+    await wait(()=>button('应用整合版'));
+    assert.equal(streams,2);
+    assert.equal(calls.filter(c=>c.url.endsWith('/jobs')).length,1);
+    assert.equal(calls.filter(c=>c.method==='DELETE').length,0);
+    button('应用整合版').click();
+    await wait(()=>!document.querySelector('.sheet'));
+  } finally {close();}
+});
+
+test('直连页面重载后只提示从中断处继续，自动整理不会重发',async()=>{
+  const {story,nodes}=await seedStory();
+  const conn=await db.get('connections','qa-conn');
+  const key=JSON.stringify(['archiveTask',story.id,'a1']);
+  await db.kvSet(key,{ids:['a1'],format:'openai'});
+  try {
+    const result=await runArchivist(story,new Map(nodes.map(n=>[n.id,n])),nodes,conn,{automatic:true});
+    assert.match(result.paused,/手动重试/);
+    assert.equal(requests.length,0);
+    assert.equal((await db.get('nodes','a1')).checkpoint,undefined);
+  } finally {await db.del('kv',key);}
+});

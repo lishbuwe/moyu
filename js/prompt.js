@@ -6,7 +6,7 @@ import { INPUT_CONVENTION, PERSONAL_RULES, OPTION_GUIDE } from './personal.js';
 import { protagonistState, PROTAGONIST_FIELDS } from './protagonist.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
-import { projectColumns, layeredMemory } from './structured-memory.js';
+import { projectColumns, coreFact, layeredMemory } from './structured-memory.js';
 import { activeEdition, editionMemory } from './consolidation.js';
 import { continuityPlan } from './continuity.js';
 
@@ -202,7 +202,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
   const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
   const continuity = story.memoryMode !== 'full' ? continuityPlan(story, path, cp, splitNames, { recentN, extra }) : null;
-  const layered = compact ? layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true }) : null;
+  const layered = compact ? layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true, prioritizeCore: true }) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
   add('开头', '你正在主持一场文字互动小说。', 'base');
@@ -267,6 +267,19 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     const baseline = continuity.chapters.filter((c) => c.index >= recentStart);
     for (const chapter of baseline) selected.set(chapter.id, null);
     let remaining = budgetChars - system.length - size(messages) - continuationChars;
+    const recallTitle = '【根据本轮场景召回的较早事实】';
+    const recalled = [];
+    function takeFacts(priority) {
+      for (const r of layered?.records.recalled || []) {
+        if (!!coreFact(r) !== priority) continue;
+        const line = `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`;
+        const chars = line.length + (recalled.length ? 1 : recallTitle.length + 3);
+        if (chars > remaining) continue;
+        remaining -= chars;
+        recalled.push({r, line});
+      }
+    }
+    takeFacts(true);
     const sceneIds = new Set(continuity.scene.map((c) => c.id));
     const outside = continuity.excerpts.filter(({ chapter }) => !sceneIds.has(chapter.id) && !selected.has(chapter.id));
     const quoteReserve = Math.min(1600, Math.floor(Math.max(0, remaining) / 3),
@@ -314,15 +327,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     messages = [...earlier, ...messages];
     if (quotes.length) add('较早互动原文', quoteTitle + '\n' + quotes.sort((a, b) => a.chapter - b.chapter).map((x) => x.text).join('\n\n'), 'continuity');
     if (pendingBlocks.length) add('尚未整理的较早剧情', pendingTitle + '\n' + pendingBlocks.sort((a, b) => a.no - b.no).map((block) => block.text).join('\n\n'), 'continuity');
-    const recallTitle = '【根据本轮场景召回的较早事实】';
-    const recalled = [];
-    let recallRoom = remaining - recallTitle.length - 1;
-    for (const r of layered?.records.recalled || []) {
-      const line = `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`;
-      if (line.length + 1 > recallRoom) continue;
-      recallRoom -= line.length + 1;
-      recalled.push({ r, line });
-    }
+    takeFacts(false);
     if (recalled.length) add('历史记忆检索', recallTitle + '\n' + recalled.map((x) => x.line).join('\n'), 'memory');
     if (layered) layered.hits = recalled.map(({ r }) => ({ id: r.id, from: r.sourceFrom, to: r.sourceTo }));
     system = parts.map((p) => p.text).join('\n\n');
@@ -350,7 +355,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       parts: parts.filter((p) => p.text).map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
       tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
       memoryUpTo: cp ? cp.mem.upTo : 0,
-      memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreOmitted: layered?.coreOmitted || 0, continuity: continuityInfo,
+      memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreIncluded: layered?.records.core.length || 0, coreRecalled: layered?.records.recalled.filter(r => coreFact(r) && layered.hits.some(h => h.id === r.id)).length || 0, coreOmitted: layered?.coreOmitted || 0, continuity: continuityInfo,
     },
   };
 }

@@ -7,7 +7,7 @@ import { streamWithRetry, ApiError } from '../api.js';
 import { cancelRelayJob } from '../relay.js';
 import { buildContext, inputBudgetChars, CONTINUE_MSG, rewriteMsg, selectExtras, splitNames, latestCheckpoint } from '../prompt.js';
 import { migrateCheckpoints } from '../structured-memory.js';
-import { pendingChapters, runArchivist, archivingNow } from '../memory.js';
+import { pendingChapters, runArchivist, archiveRecovery, archivingNow } from '../memory.js';
 import { archiveConn, DEFAULT_EVERY } from './memory.js';
 import { getDiscussion, newDiscussion, saveDiscussion } from '../discuss.js';
 import { parseReply, paragraphs } from '../parse.js';
@@ -542,7 +542,6 @@ export async function render(root, { id }) {
       .map(({ nodeId, key, quote, reason }) => ({ nodeId, key, quote, reason }));
     if (!resumeJob) { st.lastCtx = ctx; st.lastCtxNodeId = a.id; }
     if (ctx.info.trimmed) toast(`剧情太长，最早的 ${ctx.info.trimmed} 条没有发给模型`);
-    if (ctx.info.coreOmitted) toast(`核心记忆有 ${ctx.info.coreOmitted} 条超出预算；可在记忆页整理或暂切整包模式`, 4500);
 
     const ctrl = new AbortController();
     st.streaming = { id: a.id, ctrl };
@@ -1187,7 +1186,7 @@ export async function render(root, { id }) {
       el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } },
         `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），输入预算 ${i.budgetChars.toLocaleString()} 字，${i.count} 条消息。` +
         (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') +
-        (i.coreOmitted ? `核心记忆有 ${i.coreOmitted} 条超过固定栏目预算；相关条目仍可被本轮检索召回。` : '') +
+        (i.memoryMode === 'layered' ? `核心栏带入 ${i.coreIncluded} 条，检索补回关键事实 ${i.coreRecalled} 条。` : '') +
         (i.continuity ? `按场景接续，召回 ${i.retrievalHits.length} 条历史记忆。` : i.memoryMode === 'layered' ? '分层记忆模式。' : '整包档案模式。')),
       i.continuity ? el('div', { class: 'card', style: { fontSize: '14px', lineHeight: '1.6' } },
         el('div', { text: '原文章节：' + (i.continuity.kept.join('、') || '无') }),
@@ -1233,8 +1232,14 @@ export async function render(root, { id }) {
     nodesDirty = true;
   };
   window.addEventListener('moyu:put', onPut);
+  const recoverArchive = async () => {
+    if (destroyed || archivingNow(story.id)) return;
+    const first = pendingChapters(headPath()).pending[0];
+    if (await archiveRecovery(story.id, first?.id)) await autoArchive(true);
+  };
   const onVisible = () => {
     if (document.visibilityState !== 'visible' || destroyed) return;
+    void recoverArchive();
     const node = st.streaming && nodes.get(st.streaming.id);
     relayRetry = 0;
     if (node?.relayJob) { reconnectRequested = true; st.streaming.ctrl.abort('reconnect'); }
@@ -1246,6 +1251,7 @@ export async function render(root, { id }) {
   document.addEventListener('visibilitychange', onVisible);
   renderFeed();
   requestAnimationFrame(fit);
+  void recoverArchive();
   void resumePending();
   const destroy = () => {
     destroyed = true;

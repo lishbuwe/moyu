@@ -4,7 +4,7 @@ import { db } from '../db.js';
 import { el, toast, sheet } from '../util.js';
 import { resolveConnection, getConnections, connLabel, go, setCurrentStory, watchStory, PLAY_KEYS } from '../state.js';
 import { latestCheckpoint } from '../prompt.js';
-import { pendingChapters, runArchivist, archivePause, BATCH, archivingNow } from '../memory.js';
+import { pendingChapters, runArchivist, archivePause, archiveRecovery, BATCH, archivingNow } from '../memory.js';
 import { activeEdition, editionMemory } from '../consolidation.js';
 import { openEdition } from './memory-edition.js';
 import { fmtMoney } from '../cost.js';
@@ -93,17 +93,19 @@ export async function render(root, { id }) {
       },
     }, '重新整理最近一次') : null;
     if (redoBtn) redoBtn.disabled = !!running || !!ext;
+    const stop = (running || ext)?.ctrl;
     wrap.append(el('div', { class: 'card' },
-      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '每几章自动整理一次', el('small', { text: '0 = 不自动，只手动整理。整理在后台进行，不耽误继续玩。' })), every),
-      el('div', { class: 'field', style: { margin: '6px 0 10px' } }, el('label', { text: '整理用的连接' }), connSel,
-        el('div', { class: 'hint', text: '留空就跟正文共用连接。待整理章节达到设定数量时开始，每批最多整理 10 章；如果常遇到 429，可以在这里单独选一条有额度的连接。便宜模型可能漏细节，请在整理后检查档案。' })),
-      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '使用旧整包档案模式', el('small', { text: '关闭时，正文会按场景接续，并引用还在发展的较早互动。' })), mode),
-      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '最近保留几章原文', el('small', { text: '按场景接续时的保底章数，预算允许时会带上更多相关原文。' })), recent),
-      el('div', { class: 'row' }, runBtn, (running || ext)?.ctrl ? el('button', { class: 'btn small', onclick: () => (running || ext).ctrl.abort() }, '停止整理') : null, redoBtn, cp && !running && !ext ? el('button', { class:'btn small', onclick:async () => {
-        try { await openEdition(story,path,cp,await archiveConn(story),async () => { showOriginal = false; await reload(); }); } catch (e) { toast(e.message); }
-      } }, '整合已有记忆') : null), status));
-    if (running) status.textContent = running.text + '（可以离开这页，整理会在后台继续）';
-    else if (ext) status.textContent = ext.text + '（游玩页在后台整理，完成后这里会自动刷新）';
+      el('div', { class: 'row' }, runBtn, stop ? el('button', { class: 'btn small', onclick: () => stop.abort() }, '停止整理') : null,
+        cp && !stop ? el('button', { class:'btn small', onclick:async () => {
+          try { await openEdition(story,path,cp,await archiveConn(story),async () => { showOriginal = false; await reload(); }); } catch (e) { toast(e.message); }
+        } }, '整合已有记忆') : null), status),
+      el('details', {class:'card'}, el('summary',{text:'整理设置与更多操作'}),
+        el('div',{class:'switch-row'}, el('label',{text:'自动整理间隔（章，0 为关闭）'}),every),
+        el('div',{class:'field'}, el('label',{text:'整理用的连接'}),connSel),
+        el('div',{class:'switch-row'},el('label',{text:'最近保留几章原文'}),recent),
+        el('div',{class:'switch-row'},el('label',{text:'使用旧整包档案模式'}),mode),redoBtn));
+    if (running) status.textContent = running.text;
+    else if (ext) status.textContent = ext.text;
 
     if (!running && !ext && pending.length) archivePause(story.id, pending[0].id).then(reason => {
       if (reason && !destroyed && statusEl === status) {
@@ -112,9 +114,6 @@ export async function render(root, { id }) {
       }
     });
     if (!cp) {
-      wrap.append(el('div', { class: 'empty', style: { padding: '28px 8px' } },
-        '还没有整理过前情。', el('br'),
-        `每 ${story.memEvery ?? DEFAULT_EVERY} 章会自动整理一次：剧情摘要、不可逆的事、信物、未决事项、信息差、角色当前状态……整理好之后，更早的原文就不再整段发给模型，省钱也不容易漂移。`));
       return;
     }
 
@@ -145,10 +144,12 @@ export async function render(root, { id }) {
     });
 
     const last = m.lastRun;
-    wrap.append(el('div', { class: 'hint', style: { margin: '14px 2px 6px' } },
-      `下面是当前这条线上最新的一份档案（第 1–${m.upTo} 章）。分层模式会按需取用，整包模式会发送全部。` +
-      (last ? ` 上次整理：第 ${last.from}–${last.to} 章${last.model ? '，用 ' + last.model : ''}${last.cost ? '，' + fmtMoney(last.cost) : ''}。` : '')));
-
+    if (last) wrap.append(el('div', {class:'hint', text:`上次整理 · 第 ${last.from}–${last.to} 章 · ${last.model || ''}${last.cost ? ' · ' + fmtMoney(last.cost) : ''}`}));
+    const section = label => {
+      const details = el('details', {class:'card'}, el('summary',{text:label}));
+      wrap.append(details);
+      return details;
+    };
     if ((m.unsure?.length || 0) + (m.conflicts?.length || 0) > 0) {
       wrap.append(el('div', { class: 'section-title', text: '需要你看一眼' }),
         el('div', { class: 'card notice' },
@@ -156,21 +157,21 @@ export async function render(root, { id }) {
           listArea('unsure', '待确认'), listArea('conflicts', '设定冲突')));
     }
 
-    wrap.append(el('div', { class: 'section-title', text: '剧情' }), el('div', { class: 'card' },
+    section('剧情与物品').append(el('div', {},
       shown.early?.trim() ? el('div', { class: 'field' }, el('label', { text: `早期概要（第 1–${m.earlyUpTo} 章，摘要太长时自动压缩而来）` }), early) : null,
       ...sums.map(({ x, ta }) => el('div', { class: 'field' }, el('label', { text: `第 ${x.from}–${x.to} 章` }), ta)),
       listArea('irreversible', '不可逆的事（永久保留，不会被压缩）'),
       listArea('corrections', '勘误（和上面冲突时以这里为准）', '改了早期章节的事实、或者发现档案记错了，写在这里。'),
       listArea('items', '物品与信物')));
-    wrap.append(el('div', { class: 'section-title', text: '暗线' }), el('div', { class: 'card' },
+    section('暗线与信息差').append(el('div', {},
       listArea('threads', '未决事项、未兑现的承诺、暗线'),
       listArea('knowledge', '信息差：谁知道什么、谁不知道', '防止角色开上帝视角。'),
       listArea('offscreen', '暗处动向：各角色接下来想做什么', '让角色在你不推的时候也会自己出手。'),
       listArea('repeats', '最近反复出现的套路', '下一段会提醒模型换个写法。')));
     if (cardFields.length) {
-      wrap.append(el('div', { class: 'section-title', text: '角色（会覆盖角色卡上的这三栏）' }));
+      const roleSection = section('角色当前状态');
       for (const c of cardFields) {
-        wrap.append(el('div', { class: 'card' },
+        roleSection.append(el('div', { class: 'card' },
           el('div', { style: { fontWeight: 600, marginBottom: '8px' } }, c.name),
           el('div', { class: 'field' }, el('label', { text: '当前状态与称呼' }), c.now),
           el('div', { class: 'field' }, el('label', { text: '变化轨迹' }), c.arc),
@@ -215,7 +216,7 @@ export async function render(root, { id }) {
       const path = pathTo(nodes, story.headId);
       const r = await runArchivist(story, nodes, path, conn, {
         signal: ctrl.signal, ctrl,
-        onProgress: (t) => { if (running) { running.text = t; if (statusEl && !destroyed) statusEl.textContent = t + '（可以离开这页，整理会在后台继续）'; } },
+        onProgress: (t) => { if (running) { running.text = t; if (statusEl && !destroyed) statusEl.textContent = t; } },
       });
       running = null;
       ok = r.written.length > 0;
@@ -236,7 +237,7 @@ export async function render(root, { id }) {
   let sawExt = false;
   const timer = setInterval(async () => {
     const ext = !running && archivingNow(story.id);
-    if (ext) { if (!sawExt) draw(); sawExt = true; if (statusEl) statusEl.textContent = ext.text + '（游玩页在后台整理，完成后这里会自动刷新）'; }
+    if (ext) { if (!sawExt) draw(); sawExt = true; if (statusEl) statusEl.textContent = ext.text; }
     else if (sawExt) { sawExt = false; await reload(); }
   }, 1000);
   async function reload() {
@@ -257,9 +258,21 @@ export async function render(root, { id }) {
   window.addEventListener('moyu:cards', onCards);
   const unwatch = watchStory(story, null, PLAY_KEYS);
 
+  const recover = async () => {
+    if (destroyed || running || archivingNow(id) || document.visibilityState !== 'visible') return;
+    const first = pendingChapters(pathTo(nodes,story.headId)).pending[0];
+    if (await archiveRecovery(id, first?.id) && !destroyed) await run();
+  };
+  document.addEventListener('visibilitychange',recover);
+  void recover();
+  const initialPath = pathTo(nodes,story.headId);
+  const initialCheckpoint = latestCheckpoint(initialPath);
+  if (initialCheckpoint) void archiveConn(story).then(conn => {
+    if (!destroyed) return openEdition(story,initialPath,initialCheckpoint,conn,reload,{resumeOnly:true});
+  }).catch(e => { if (!destroyed) toast(e.message); });
   draw();
   // 离开这页不打断整理：它会在后台写完，游玩页会收到通知
-  return () => { destroyed = true; clearInterval(timer); window.removeEventListener('moyu:checkpoint', onCheckpoint); window.removeEventListener('moyu:cards', onCards); unwatch(); };
+  return () => { destroyed = true; document.removeEventListener('visibilitychange',recover); clearInterval(timer); window.removeEventListener('moyu:checkpoint', onCheckpoint); window.removeEventListener('moyu:cards', onCards); unwatch(); };
 }
 
 export { pathTo as memPathTo, latestCheckpoint };
