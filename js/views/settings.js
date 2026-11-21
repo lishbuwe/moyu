@@ -68,6 +68,7 @@ export async function render(root, { section }) {
     const defId = await getDefaultConnId();
 
     // ── 连接 ──
+    wrap.append(el("a", { href: "./blind.html" }, "正文盲测"));
     wrap.append(el('div', { class: 'section-title', text: 'API 连接' }));
     if (!conns.length) wrap.append(el('div', { class: 'card hint', style: { marginTop: 0 }, text: '还没有连接。点下面添加：需要接口地址、密钥和模型名。' }));
     for (const c of conns) {
