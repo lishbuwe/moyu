@@ -289,6 +289,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const size = (ms) => ms.reduce((a, m) => a + m.content.length, 0);
   const continuationChars = size(continuationMessages);
   let continuityInfo;
+  const materials = [];
   if (continuity) {
     if (size(messages) + system.length + continuationChars > budgetChars) {
       messages = kept.map((n) => message(n)).filter((m) => m.role === 'user' || m.content);
@@ -386,6 +387,17 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     const keptChapters = continuity.chapters.filter((c) => selected.has(c.id)).map((c) => c.no);
     const omitted = continuity.pending.filter((c) => !selected.has(c.id)).map((c) => c.no);
     const sceneOmitted = continuity.scene.filter((c) => !selected.has(c.id)).map((c) => c.no);
+    if (lean) {
+      for (const [source, rows] of [['核心',layered?.records.core],['状态',layered?.records.state],['检索',recalled.map(x=>x.r)]]) {
+        for (const r of rows || []) materials.push({source,id:r.id,chapter:r.sourceTo,chars:r.event.length,
+          reason:source==='检索' ? selection.candidates.find(x=>x.r===r)?.matches.join('、') : r.type});
+      }
+      for (const q of quotes) materials.push({source:'原文摘句',chapter:q.chapter,chars:q.quote.length,
+        reason:automatic.find(hit=>hit.chapter===q.chapter)?.reason || '玩家保留'});
+      for (const c of continuity.chapters.filter(c=>selected.has(c.id))) materials.push({source:'整章原文',
+        chapter:c.no,chars:continuity.body(c).length,reason:c.index>=recentStart?'最近对话':'未整理相关章节'});
+      for (const line of continuity.activeLines) materials.push({source:'状态',id:line.id,chars:line.detail.length,reason:'近期未完互动'});
+    }
     continuityInfo = { kept: keptChapters, excerpts: [...new Set(quotes.map((x) => x.chapter))], omitted, sceneOmitted, automatic };
   }
   while (!continuity && !compact && messages.length > 6 && size(messages) + system.length + continuationChars > budgetChars) {
@@ -403,7 +415,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     cachePrefix,
     messages,
     info: {
-      memoryPlan: lean ? 'lean' : 'legacy', fastPath: selection?.fastPath || false,
+      materials, memoryPlan: lean ? 'lean' : 'legacy', fastPath: selection?.fastPath || false,
       systemChars: system.length, historyChars, totalChars: system.length + historyChars, budgetChars, trimmed, count: messages.length,
       parts: parts.filter((p) => p.text).map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
       tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),

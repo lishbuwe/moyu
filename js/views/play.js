@@ -1199,6 +1199,7 @@ export async function render(root, { id }) {
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),
         el('div', {}, '在场（会提醒禁止清单）：', i.present?.length ? i.present.join('、') : '无'),
         el('div', {}, '规则模块：', i.modules?.length ? i.modules.join('、') : '无')),
+      i.materials?.length ? block('本轮选材依据', i.materials.map(m=>[m.source,m.chapter && '第'+m.chapter+'章',m.id,m.reason,m.chars+'字'].filter(Boolean).join(' · ')).join('\n')) : null,
       ...(i.parts || []).map((p) => block(`${p.label} · ${p.chars.toLocaleString()} 字`, p.text)),
       block(`剧情对话 · ${i.historyChars.toLocaleString()} 字`, ctx.messages.map((m) => `【${m.role === 'user' ? '玩家' : 'GM'}】\n${m.content}`).join('\n\n')),
       i.tail ? block('末尾提醒（贴在最后一条玩家消息里）', i.tail.trim(), true) : null,
