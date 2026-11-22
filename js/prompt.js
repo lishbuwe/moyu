@@ -87,7 +87,20 @@ export function protagonistText(story, path = []) {
   return '【主角（玩家扮演的“你”）】\n' + lines.join('\n') + '\n叙述中的姓名和人称按这里来；角色在对白中的称呼，随双方已发生的互动和当前场合自然变化。';
 }
 
-export function cardText(c) {
+export function arcForPrompt(arc, {keep=3, maxChars=700}={}) {
+  const rows=(arc || '').split('\n').map(t=>t.trim()).filter(Boolean);
+  const head=rows[0]?.startsWith('【整体走向】') ? rows.shift() : '';
+  const tail=rows.slice(-keep);
+  while (true) {
+    const omitted=rows.length-tail.length;
+    const note=omitted ? '（更早的变化已省略，共 '+omitted+' 条）' : '';
+    const result=[head,note,...tail].filter(Boolean).join('\n');
+    if (result.length<=maxChars || tail.length<=1) return result.slice(0,maxChars);
+    tail.shift();
+  }
+}
+export function cardText(c, {arcLimit, voiceLimit}={}) {
+  if (arcLimit || voiceLimit) c={...c,arc:arcForPrompt(c.arc,{maxChars:arcLimit}),voice:(c.voice||'').split('\n').slice(0,voiceLimit).join('\n')};
   const parts = [`【角色卡·${c.name || '未命名'}】` + (c.aliases?.trim() ? `（也叫：${c.aliases.trim()}）` : '')];
   if (c.publicProfile?.trim()) parts.push('〔公开资料〕\n' + c.publicProfile.trim());
   if (c.initial?.trim()) parts.push('〔初始设定〕\n' + c.initial.trim());
@@ -217,22 +230,27 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const layered = compact ? selection || layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true, prioritizeCore: true }) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
+  function promptCard(c) {
+    const state=applyCardState(c,cp?.mem);
+    if (lean && !present.includes(c)) return [c.name,(state.brief || state.now || '').split(/[。！？\n]/)[0].slice(0,60)].filter(Boolean).join(' · ');
+    return cardText(state,lean ? {arcLimit:700,voiceLimit:2} : {});
+  }
   add('开头', '你正在主持一场文字互动小说。', 'base');
   add('规则（这个故事）', story.rules?.trim() ? '【规则】\n' + story.rules.trim() : '', 'rules');
   add('全局备忘', globalMemo?.trim() ? '【全局备忘（所有故事通用）】\n' + globalMemo.trim() : '', 'rules');
   add('世界与角色设定', story.world?.trim() ? '【世界与角色设定】\n' + story.world.trim() : '', 'world');
   add('主角', protagonistText(story, path), 'card');
-  for (const c of sentCards.filter((c) => c.core)) add(`角色卡 · ${c.name}（常驻）`, cardText(applyCardState(c, cp?.mem)), 'card');
+  for (const c of sentCards.filter((c) => c.core)) add(`角色卡 · ${c.name}（常驻）`, promptCard(c), 'card');
   if (cp && !compact) add(`前情档案 · 整理到第 ${cp.mem.upTo} 章`, memoryText(cp.mem), 'memory');
   if (layered?.core) add('永久核心记忆', `【永久核心：已发生的关键事实】\n${layered.core}`, 'memory');
   if (layered) {
-    const current = [`当前已整理到第 ${cp.mem.upTo} 章`, ...Object.entries(cp.mem.cards || {}).map(([name, v]) => `${name}：${String(v.now || '').slice(0, 160)}`).slice(0, 5), layered.state].filter(Boolean).join('\n');
+    const current = [`当前已整理到第 ${cp.mem.upTo} 章`, ...(lean ? continuity.activeLines.map(line=>line.detail) : Object.entries(cp.mem.cards || {}).map(([name, v]) => `${name}：${String(v.now || '').slice(0, 160)}`).slice(0, 5)), layered.state].filter(Boolean).join('\n');
     add('当前状态', `【当前状态和未决事项】\n${current}`, 'memory');
   }
   // 只在稳定前缀末尾放缓存断点；本轮命中的模块和非核心角色不会使它失效。
   const cachePrefix = parts.map((p) => p.text).join('\n\n');
   for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
-  for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, cardText(applyCardState(c, cp?.mem)), 'card');
+  for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, promptCard(c), 'card');
   add('玩家输入约定', INPUT_CONVENTION, 'rules');
   add('输出格式', '【输出格式】\n' + formatContract({ danmu: story.danmu !== false, options: story.options !== false }), 'format');
   if (continuity) add('互动连续性', '【互动连续性】\n初始设定是故事的起点。判断人物现在的态度、距离和措辞时，以本分支中已经发生的互动为依据。较早片段只是前因；可以延续、暂时搁下或在合适时回应。保留仍未挑明的地方，不替人物定性。', 'rules');
