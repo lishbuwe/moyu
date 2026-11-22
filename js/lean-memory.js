@@ -53,7 +53,7 @@ export function leanMemory(mem, query, director, lastBody, aliases, present) {
     for (const t of r.items||[]) items.add(t);
   }
   let terms = [...vocab].filter(t=>t && query.includes(t));
-  if (!terms.length && pointer.test(query)) {
+  if (!terms.length && !past.test(query) && pointer.test(query)) {
     const tail=lastBody.slice(-260);
     terms=[...vocab].filter(t=>t && tail.includes(t)).sort((a,b)=>(tail.lastIndexOf(b)+b.length)-(tail.lastIndexOf(a)+a.length)||b.length-a.length).slice(0,1);
   }
