@@ -62,6 +62,7 @@ export function updateContinuity(previous, result, batch, nodes) {
 const transition = /^(?:[（(【「“\s]*)(?:次日|翌日|隔天|第二天|与此同时|同一时间|另一边|镜头转到|转场|\d+[天周个月年]+后|[两三四五六七八九十几]+[天周个月年]+后)(?:[，。；：！、\s]|一早|清晨|上午|中午|下午|傍晚|晚上|[）)】」”]|$)/u;
 
 export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, extra = '' } = {}) {
+  const lean = story.memoryPlan === 'lean' && story.memoryMode !== 'full';
   const chapters = [];
   for (let index = 0; index < path.length; index++) {
     const node = path[index];
@@ -90,7 +91,7 @@ export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, 
         break;
       }
       // 只检查可能放进一次请求的近期原文，避免每轮解析整部小说。
-      if (chapters.length - sceneAt >= 30) break;
+      if (chapters.length - sceneAt >= (lean ? recentN : 30)) break;
     }
   }
   const scene = chapters.slice(sceneAt);
@@ -106,7 +107,7 @@ export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, 
   for (const chapter of chapters) for (const quote of Array.isArray(chapter.node.continuityPins) ? chapter.node.continuityPins : []) {
     if (quoteIn(body(chapter), quote)) excerpts.push({ chapter, quote, pinned: true });
   }
-  for (const line of archive?.lines || []) {
+  for (const line of lean ? [] : archive?.lines || []) {
     if (!line.people?.some(present)) continue;
     const refs = line.refs || [];
     if (!refs.length || !refs.every((ref) => quoteIn(body(byId.get(ref.nodeId)), ref.quote))) continue;
@@ -115,7 +116,7 @@ export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, 
     }
   }
   excerpts.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.chapter.no - a.chapter.no);
-  const automatic = path.at(-1)?.kind === 'ooc' ? [] : recallPassages(chapters, scene, body, {
+  const automatic = lean || path.at(-1)?.kind === 'ooc' ? [] : recallPassages(chapters, scene, body, {
     query: [latestUser?.text, latestUser?.director, extra].filter(Boolean).join('\n').slice(0, 500),
     context: scene.slice(-2).map((c) => body(c).slice(-260)).join('\n'),
     people: [...aliases.values()].flat().concat(protagonist || ''),
@@ -125,8 +126,13 @@ export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, 
   const pendingRanked = pending.slice(-30).map((chapter) => {
     const text = (chapter.user?.text || '') + '\n' + body(chapter);
     return { chapter, score: presentNames.filter((name) => mentioned(name, text)).length };
-  }).sort((a, b) => b.score - a.score || b.chapter.no - a.chapter.no).map(({ chapter }) => chapter);
+  }).filter(row => !lean || row.score > 0).sort((a, b) => b.score - a.score || b.chapter.no - a.chapter.no).map(({ chapter }) => chapter);
   return {
-    chapters, scene, excerpts: [...excerpts, ...automatic], pending, pendingRanked,
+    chapters, scene, presentNames, body, activeLines: lean ? (archive?.lines || []).filter(line => {
+      const ref = line.refs?.at(-1);
+      const source = byId.get(ref?.nodeId);
+      return source && chapters.length - source.no < 15 && quoteIn(body(source), ref.quote) &&
+        line.people?.length && line.people.every(name => name === protagonist || present(name));
+    }).slice(-3) : [], excerpts: [...excerpts, ...automatic], pending, pendingRanked,
   };
 }

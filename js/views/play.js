@@ -1185,19 +1185,21 @@ export async function render(root, { id }) {
     s.body.append(...[
       el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } },
         `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），输入预算 ${i.budgetChars.toLocaleString()} 字，${i.count} 条消息。` +
+        (i.memoryPlan === 'lean' ? '精简方案。' + (i.fastPath ? '本轮无需检索。' : '') : '常规方案。') +
         (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') +
         (i.memoryMode === 'layered' ? `核心栏带入 ${i.coreIncluded} 条，检索补回关键事实 ${i.coreRecalled} 条。` : '') +
         (i.continuity ? `按场景接续，召回 ${i.retrievalHits.length} 条历史记忆。` : i.memoryMode === 'layered' ? '分层记忆模式。' : '整包档案模式。')),
       i.continuity ? el('div', { class: 'card', style: { fontSize: '14px', lineHeight: '1.6' } },
         el('div', { text: '原文章节：' + (i.continuity.kept.join('、') || '无') }),
         i.continuity.excerpts.length ? el('div', { text: '额外引用：第 ' + i.continuity.excerpts.join('、') + ' 章' }) : null,
-        ...i.continuity.automatic.map((hit) => el('div', { text: `自动找回第 ${hit.chapter} 章 · 线索：${hit.reason} · ${hit.fresh ? '本轮命中，之后保留 ' + hit.rounds + ' 轮' : '沿用，本场还可带 ' + hit.rounds + ' 轮（含本轮）'}` })),
+        ...i.continuity.automatic.map((hit) => el('div', { text: i.memoryPlan === 'lean' ? '定向引用第 '+hit.chapter+' 章 · '+hit.reason : `自动找回第 ${hit.chapter} 章 · 线索：${hit.reason} · ${hit.fresh ? '本轮命中，之后保留 ' + hit.rounds + ' 轮' : '沿用，本场还可带 ' + hit.rounds + ' 轮（含本轮）'}` })),
         i.continuity.sceneOmitted.length ? el('div', { text: '当前场景中未带整章原文：' + i.continuity.sceneOmitted.join('、') }) : null,
         i.continuity.omitted.length ? el('div', { text: '未带整章原文的待整理章节：' + i.continuity.omitted.join('、') }) : null) : null,
       el('div', { class: 'card', style: { fontSize: '14px', lineHeight: 1.7 } },
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),
         el('div', {}, '在场（会提醒禁止清单）：', i.present?.length ? i.present.join('、') : '无'),
         el('div', {}, '规则模块：', i.modules?.length ? i.modules.join('、') : '无')),
+      i.materials?.length ? block('本轮选材依据', i.materials.map(m=>[m.source,m.chapter && '第'+m.chapter+'章',m.id,m.reason,m.chars+'字'].filter(Boolean).join(' · ')).join('\n')) : null,
       ...(i.parts || []).map((p) => block(`${p.label} · ${p.chars.toLocaleString()} 字`, p.text)),
       block(`剧情对话 · ${i.historyChars.toLocaleString()} 字`, ctx.messages.map((m) => `【${m.role === 'user' ? '玩家' : 'GM'}】\n${m.content}`).join('\n\n')),
       i.tail ? block('末尾提醒（贴在最后一条玩家消息里）', i.tail.trim(), true) : null,

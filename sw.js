@@ -23,6 +23,7 @@ const ASSETS = [
   './js/relay.js',
   './js/prompt.js',
   './js/structured-memory.js',
+  './js/lean-memory.js',
   './js/consolidation.js',
   './js/views/memory-edition.js',
   './js/continuity.js',

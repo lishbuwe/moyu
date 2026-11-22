@@ -113,3 +113,23 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
   const fresh = ranked.filter((hit) => !active.has(hit.chapter.id) && hit.score >= best * 0.6);
   return [...fresh.filter((hit) => hit.direct), ...active.values(), ...fresh.filter((hit) => !hit.direct)].slice(0, MAX_HITS);
 }
+
+// 已确认事实后，只回到该事实的来源范围；同一实体可能在多章出现。
+export function passageForFact(chapters, body, record, terms, recentN) {
+  const from = record.sourceChapter || record.sourceFrom;
+  const to = record.sourceChapter || record.sourceTo;
+  let best;
+  for (const chapter of chapters.slice(0, -recentN)) {
+    if (chapter.no < from || chapter.no > to) continue;
+    for (const paragraph of body(chapter).split(/\n+/)) {
+      const matched = terms.filter(term => paragraph.includes(term));
+      if (!matched.length) continue;
+      const start = Math.max(0, paragraph.indexOf(matched[0]) - 100);
+      const quote = paragraph.slice(start, start + 400);
+      const score = matched.reduce((sum,t)=>sum+t.length,0) + (quote.includes(record.event) ? 1000 : 0);
+      if (!best || best.score < score) best = { chapter, quote, score, key:'fact-'+record.id,
+        reason:matched.join('、')+' · '+record.id, fresh:true, rounds:1 };
+    }
+  }
+  return best;
+}
