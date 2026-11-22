@@ -1,3 +1,5 @@
+import { leanMemory, covered } from './lean-memory.js';
+import { passageForFact } from './recall.js';
 // 墨游 · 每轮重新拼装发给模型的内容
 // 顺序：固定规则、设定、常驻角色卡、前情档案 → 动态模块和角色 → 对话原文。
 
@@ -203,7 +205,16 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
   const recentN = Math.max(2, Math.min(lean ? 6 : 4, Number(story.recentChapters) || 2));
   const continuity = story.memoryMode !== 'full' ? continuityPlan(story, path, cp, splitNames, { recentN, extra }) : null;
-  const layered = compact ? layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true, prioritizeCore: true }) : null;
+  const user = path.findLast(n=>n.role === 'user');
+  const director = [user?.director,extra].filter(Boolean).join(' ');
+  const recentBodies = lean ? continuity.chapters.slice(-recentN).map(continuity.body) : [];
+  if (lean) {
+    present = (story.cards || []).filter(c=>present.includes(c) || continuity.presentNames.includes(c.name));
+    sentCards = (story.cards || []).filter(c=>c.core || present.includes(c));
+  }
+  const selection = lean ? leanMemory(cp?.mem, [user?.text,director].filter(Boolean).join(' '), director,
+    recentBodies.at(-1) || '', (story.cards || []).flatMap(splitNames), [...present.map(c=>c.name),story.protagonist?.name].filter(Boolean)) : null;
+  const layered = compact ? selection || layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true, prioritizeCore: true }) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
   add('开头', '你正在主持一场文字互动小说。', 'base');
@@ -280,6 +291,21 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
         recalled.push({r, line});
       }
     }
+    if (selection && layered) {
+      const sources = [...recentBodies, ...parts.map(p=>p.text)];
+      let room = 1200;
+      for (const { r, matches } of selection.candidates) {
+        if (covered(r.event, sources) || r.event.length + 18 > room) continue;
+        layered.records.recalled.push(r);
+        room -= r.event.length + 18;
+        sources.push(r.event);
+        if (selection.verify && !continuity.excerpts.some(e=>e.key)) {
+          const hit = passageForFact(continuity.chapters,continuity.body,r,matches,recentN);
+          if (hit) continuity.excerpts.push(hit);
+        }
+        if (layered.records.recalled.length >= 5) break;
+      }
+    }
     takeFacts(true);
     const sceneIds = new Set(continuity.scene.map((c) => c.id));
     const outside = continuity.excerpts.filter(({ chapter }) => !sceneIds.has(chapter.id) && !selected.has(chapter.id));
@@ -319,6 +345,10 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     let pendingRoom = lean ? 3000 : Infinity;
     for (const chapter of continuity.pendingRanked) {
       if (selected.has(chapter.id) || quotes.some((quote) => quote.chapter === chapter.no)) continue;
+      if (lean) {
+        const topics = [...selection.terms.filter(t=>!(story.cards||[]).some(c=>splitNames(c).includes(t))), ...selection.topicTerms];
+        if (selection.fastPath || !topics.some(t=>continuity.body(chapter).includes(t) && !recentBodies.some(body=>body.includes(t)))) continue;
+      }
       const text = [`〔第${chapter.no}章〕`, chapter.user ? '玩家：' + userContent(chapter.user) : '', message(chapter.node).content].filter(Boolean).join('\n');
       const chars = text.length + 2 + (pendingBlocks.length ? 0 : pendingTitle.length + 1);
       if (chars > remaining || chars > pendingRoom || (lean && pendingBlocks.length >= 3)) continue;
@@ -355,6 +385,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     cachePrefix,
     messages,
     info: {
+      memoryPlan: lean ? 'lean' : 'legacy', fastPath: selection?.fastPath || false,
       systemChars: system.length, historyChars, totalChars: system.length + historyChars, budgetChars, trimmed, count: messages.length,
       parts: parts.filter((p) => p.text).map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
       tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
