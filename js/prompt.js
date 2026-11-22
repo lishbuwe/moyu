@@ -196,11 +196,12 @@ export function inputBudgetChars(conn) {
 }
 
 export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '', continuationMessages = [] } = {}) {
-  const { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
+  const lean = story.memoryPlan === 'lean' && story.memoryMode !== 'full';
+  let { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
   if (cp) cp.mem = editionMemory(cp.mem, activeEdition(path));
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
-  const recentN = Math.max(2, Math.min(4, Number(story.recentChapters) || 2));
+  const recentN = Math.max(2, Math.min(lean ? 6 : 4, Number(story.recentChapters) || 2));
   const continuity = story.memoryMode !== 'full' ? continuityPlan(story, path, cp, splitNames, { recentN, extra }) : null;
   const layered = compact ? layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true, prioritizeCore: true }) : null;
   const parts = [];
@@ -236,7 +237,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
 
   // 最近 keepRawLast 轮的回复保留弹幕和选项（让模型延续口气），更早的只留正文
   const playReplies = kept.filter((n) => n.role === 'assistant' && n.kind !== 'ooc');
-  const rawSet = new Set(playReplies.slice(-keepRawLast).map((n) => n.id));
+  const rawSet = new Set(playReplies.slice(-(lean ? 1 : keepRawLast)).map((n) => n.id));
 
   const tail = tailReminder(present);
   const fmtTail = formatTail(story);
@@ -299,7 +300,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     const quotes = [];
     const automatic = [];
     const quoteTitle = '【较早互动原文·供接续参考】';
-    let quoteRoom = Math.min(3200, remaining);
+    let quoteRoom = Math.min(lean ? 1600 : 3200, remaining);
     const seen = new Set();
     for (const { chapter, quote, detail, pinned, key: passageKey, reason, rounds, fresh } of continuity.excerpts) {
       const key = chapter.id + '\n' + quote;
@@ -307,18 +308,21 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
         item.chapter === chapter.no && (item.quote.includes(quote) || quote.includes(item.quote)))) continue;
       const text = `〔第${chapter.no}章${pinned ? ' · 玩家保留' : passageKey ? ' · 自动找回' : ''}〕\n${detail ? detail + '\n' : ''}${quote}`;
       const chars = text.length + 2 + (quotes.length ? 0 : quoteTitle.length + 1);
-      if (chars > quoteRoom) continue;
-      quoteRoom -= chars; remaining -= chars;
+      if (chars > remaining || (!(lean && pinned) && chars > quoteRoom)) continue;
+      if (!(lean && pinned)) quoteRoom -= chars;
+      remaining -= chars;
       quotes.push({ chapter: chapter.no, text, quote }); seen.add(key);
       if (passageKey) automatic.push({ nodeId: chapter.id, chapter: chapter.no, key: passageKey, quote, reason, rounds, fresh });
     }
     const pendingTitle = '【其他尚未整理的较早剧情原文】';
     const pendingBlocks = [];
+    let pendingRoom = lean ? 3000 : Infinity;
     for (const chapter of continuity.pendingRanked) {
       if (selected.has(chapter.id) || quotes.some((quote) => quote.chapter === chapter.no)) continue;
       const text = [`〔第${chapter.no}章〕`, chapter.user ? '玩家：' + userContent(chapter.user) : '', message(chapter.node).content].filter(Boolean).join('\n');
       const chars = text.length + 2 + (pendingBlocks.length ? 0 : pendingTitle.length + 1);
-      if (chars > remaining) continue;
+      if (chars > remaining || chars > pendingRoom || (lean && pendingBlocks.length >= 3)) continue;
+      pendingRoom -= chars;
       remaining -= chars;
       pendingBlocks.push({ no: chapter.no, text });
       selected.set(chapter.id, null);
