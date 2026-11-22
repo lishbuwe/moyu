@@ -1185,13 +1185,14 @@ export async function render(root, { id }) {
     s.body.append(...[
       el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } },
         `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），输入预算 ${i.budgetChars.toLocaleString()} 字，${i.count} 条消息。` +
+        (i.memoryPlan === 'lean' ? '精简方案。' + (i.fastPath ? '本轮无需检索。' : '') : '常规方案。') +
         (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') +
         (i.memoryMode === 'layered' ? `核心栏带入 ${i.coreIncluded} 条，检索补回关键事实 ${i.coreRecalled} 条。` : '') +
         (i.continuity ? `按场景接续，召回 ${i.retrievalHits.length} 条历史记忆。` : i.memoryMode === 'layered' ? '分层记忆模式。' : '整包档案模式。')),
       i.continuity ? el('div', { class: 'card', style: { fontSize: '14px', lineHeight: '1.6' } },
         el('div', { text: '原文章节：' + (i.continuity.kept.join('、') || '无') }),
         i.continuity.excerpts.length ? el('div', { text: '额外引用：第 ' + i.continuity.excerpts.join('、') + ' 章' }) : null,
-        ...i.continuity.automatic.map((hit) => el('div', { text: `自动找回第 ${hit.chapter} 章 · 线索：${hit.reason} · ${hit.fresh ? '本轮命中，之后保留 ' + hit.rounds + ' 轮' : '沿用，本场还可带 ' + hit.rounds + ' 轮（含本轮）'}` })),
+        ...i.continuity.automatic.map((hit) => el('div', { text: i.memoryPlan === 'lean' ? '定向引用第 '+hit.chapter+' 章 · '+hit.reason : `自动找回第 ${hit.chapter} 章 · 线索：${hit.reason} · ${hit.fresh ? '本轮命中，之后保留 ' + hit.rounds + ' 轮' : '沿用，本场还可带 ' + hit.rounds + ' 轮（含本轮）'}` })),
         i.continuity.sceneOmitted.length ? el('div', { text: '当前场景中未带整章原文：' + i.continuity.sceneOmitted.join('、') }) : null,
         i.continuity.omitted.length ? el('div', { text: '未带整章原文的待整理章节：' + i.continuity.omitted.join('、') }) : null) : null,
       el('div', { class: 'card', style: { fontSize: '14px', lineHeight: 1.7 } },
