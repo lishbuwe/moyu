@@ -316,7 +316,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       for (const { r, matches } of selection.candidates) {
         const inscription = /写|落款|题词|原话|留言/u.test(user?.text || '') &&
           r.event.match(/[「“]([^」”]{3,})[」”]/u)?.[1];
-        if (covered(r.event, sources) || (inscription && recentBodies.some(body => body.includes(inscription))) ||
+        if (covered(r.event, sources) || (inscription && !/谁|由谁|保管|收着|归属|哪里/u.test(user?.text || '') && sources.some(body => body.includes(inscription))) ||
             r.event.length + 18 > room) continue;
         layered.records.recalled.push(r);
         room -= r.event.length + 18;
@@ -328,12 +328,13 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
         if (layered.records.recalled.length >= 5) break;
       }
     }
-    if (compact && !selection.candidates.length && ![...layered.records.core, ...layered.records.state].some(row => selection.terms.some(term => row.event.includes(term))) && path.at(-1)?.kind !== 'ooc' &&
+    if (compact && !selection.candidates.length && path.at(-1)?.kind !== 'ooc' &&
         selection.verify && !continuity.excerpts.some(hit => hit.key)) {
+      const known = [...recentBodies, ...layered.records.core.map(r => r.event), ...layered.records.state.map(r => r.event)];
       continuity.excerpts.push(...recallPassages(continuity.chapters, continuity.scene, continuity.body, {
         query: user?.text || '', people: (story.cards || []).flatMap(splitNames), recentN,
         changedScene: true,
-      }));
+      }).filter(hit => !known.some(text => text.includes(hit.quote))));
     }
     takeFacts(true);
     const sceneIds = new Set(continuity.scene.map((c) => c.id));

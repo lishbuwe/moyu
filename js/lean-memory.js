@@ -97,13 +97,7 @@ export function leanMemory(mem, query, director, lastBody, aliases, present) {
     return n>0 && n<=Math.max(1,all.length*0.15);
   })])];
   const ranked=[...all].sort((a,b)=>(b.importance||0)-(a.importance||0)||b.sourceTo-a.sourceTo);
-  // Keep the current relationship visible without sending unrelated history bundled after it.
-  const displayCore = row => {
-    const [first, ...rest] = row.event.split(/[；;]/u);
-    if (!rest.length || !/恋人|伴侣|交往|夫妻|婚约|兄妹|兄弟|搭档|挚友/u.test(first)) return row;
-    return {...row, event:first};
-  };
-  const core=fit(ranked.filter(r=>r.type!=='knowledge' && (r.irreversible || r.type==='correction')).map(displayCore),600,8);
+  const core=fit(ranked.filter(r=>r.type!=='knowledge' && (r.irreversible || r.type==='correction')),600,8);
   const knowledge=fit(ranked.filter(r=>r.type==='knowledge' && [...r.people||[],...r.knowers||[]].some(n=>present.includes(n))),600);
   core.push(...knowledge);
   // 只有明确描述当前归属的短项可以常驻，带历史或引文的混合记录留待检索。

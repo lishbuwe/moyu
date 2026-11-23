@@ -64,3 +64,21 @@ test('普通动作提到旧物不翻档，近期原文已有答案也不查旧�
   assert.deepEqual(ctx.info.retrievalHits,[]);
   assert.deepEqual(ctx.info.continuity.excerpts,[]);
 });
+
+test('关系记录完整保留后半句；核心只写剑柄时仍能追问藏处', () => {
+  const f = syntheticStory(60);
+  f.path.at(-1).checkpoint.records = [
+    {id:'former', type:'fact', irreversible:true, event:'甲乙曾是恋人；两人已经分手，此事尚未公开。', sourceFrom:1, sourceTo:30},
+    {id:'hilt', type:'fact', irreversible:true, event:'石中剑的剑柄已经裂开。', items:['石中剑'], sourceFrom:1, sourceTo:30},
+  ];
+  f.path[65].text = '石中剑藏在旧塔的井底。';
+  assert.match(run(f,action).system,/两人已经分手，此事尚未公开/);
+  assert.match(run(f,'还记得那把石中剑吗？当时藏在哪里？').system,/旧塔的井底/);
+});
+
+test('没有结构化记录时，普通短动作也不引用同词旧章', () => {
+  const f = syntheticStory(60);
+  f.path.at(-1).checkpoint.records = [];
+  f.path[65].text = '推开房门。旧塔突然坍塌。';
+  assert.deepEqual(run(f,'推开房门。').info.continuity.excerpts,[]);
+});

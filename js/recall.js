@@ -41,7 +41,7 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
   const subject = phrase.match(/(?:那|这)(?:把|张|本|件|枚|封|柄|盏|个)([\p{L}\d]{2,12}?)(?=吗|呢|还在|现在|后来|怎么|在哪|[，。！？?]|$)/u)?.[1];
   const namedTopic = /^[\p{L}\d]{3,10}$/u.test(phrase) && !/[我你他她看着了一眼客气嗯]/u.test(phrase);
   const followup = /它|那时|后来呢|后来怎么样/.test(query);
-  if (chapters.length <= recentN || (recentN && !namedTopic && !followup &&
+  if (chapters.length <= recentN || (recentN && !followup &&
       !/以前|之前|上次|那次|当初|还记得|当时|那把|那张|那个|那本|那件|后来|上回/.test(query))) return [];
   const older = recentN ? chapters.slice(0, -recentN) : chapters;
   const sources = new Map(older.map((chapter) => [chapter.id, chapter]));

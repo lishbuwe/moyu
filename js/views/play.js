@@ -458,13 +458,16 @@ export async function render(root, { id }) {
     finally { st.sending = false; }
   }
 
+  function composerTurn(kind, text, director = st.director, inputFormat = 'quoted') {
+    return { role: 'user', kind, text: text.trim(), director: kind === 'ooc' ? '' : director.trim(),
+      ...(kind === 'play' && inputFormat ? { inputFormat } : {}) };
+  }
+
   async function saveAndGenerate(kind, text, { parentId, director, inputFormat = 'quoted' }) {
     if (headPath().some((n) => n.relayJob)) { toast('先接回后台生成，或在章节下方停止它'); return; }
     const head = story.headId ? nodes.get(story.headId) : null;
     const u = {
-      id: uid(), storyId: story.id, parentId: parentId !== undefined ? parentId : (head ? head.id : null), role: 'user', kind,
-      ...(kind === 'play' && inputFormat ? { inputFormat } : {}),
-      text: String(text || '').trim(), director: kind === 'ooc' ? '' : (director ?? st.director).trim(), createdAt: Date.now(),
+      id: uid(), storyId: story.id, parentId: parentId !== undefined ? parentId : (head ? head.id : null), ...composerTurn(kind, text, director, inputFormat), createdAt: Date.now(),
     };
     touch(u);
     nodes.set(u.id, u);
@@ -1173,9 +1176,12 @@ export async function render(root, { id }) {
   }
 
   function showContext() {
-    const lastCtx = st.lastCtxNodeId === story.headId ? st.lastCtx : null;
-    const ctx = lastCtx || buildContext(story, headPath(), { budgetChars: inputBudgetChars(st.conn), modules: st.modules, globalMemo: st.globalMemo });
-    const s = sheet({ title: lastCtx ? (headPath().at(-1)?.error?.kind === 'input_budget' ? '上轮未发送的内容' : '上一轮发给模型的内容') : '按当前分支预览上下文' });
+    const draft = ta.value.trim();
+    const path = headPath();
+    const previewPath = draft ? [...path, composerTurn(st.ooc ? 'ooc' : 'play', draft)] : path;
+    const lastCtx = !draft && st.lastCtxNodeId === story.headId ? st.lastCtx : null;
+    const ctx = lastCtx || buildContext(story, previewPath, { budgetChars: inputBudgetChars(st.conn), modules: st.modules, globalMemo: st.globalMemo });
+    const s = sheet({ title: lastCtx ? (headPath().at(-1)?.error?.kind === 'input_budget' ? '上轮未发送的内容' : '上一轮发给模型的内容') : draft ? '本轮草稿将发送的内容' : '按当前分支预览上下文' });
     const i = ctx.info;
     const block = (label, text, open = false) => {
       const d = el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer', fontSize: '14px' }, text: label }), el('pre', { class: 'raw', text }));

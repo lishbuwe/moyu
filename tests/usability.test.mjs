@@ -145,7 +145,7 @@ test('正文自动找回旧对白，普通动作不沿用，换场和回退不�
     return requests.at(-1).body.messages.find((m) => m.role === 'system').content;
   }
   try {
-    assert.ok((await send('半温莎结')).includes(quote));
+    assert.ok((await send('还记得那个半温莎结吗？')).includes(quote));
     const first = await db.get('stories', story.id);
     const anchor = await db.get('nodes', first.headId);
     assert.ok(anchor.recallRefs.some((hit) => hit.nodeId === nodes[1].id));
@@ -153,7 +153,7 @@ test('正文自动找回旧对白，普通动作不沿用，换场和回退不�
     dispose = await play.render(root, { id: story.id });
     assert.ok(!(await send('我毫不客气地看了他一眼。')).includes(quote));
     assert.ok(!(await send('嗯。')).includes(quote));
-    assert.ok((await send('半温莎结')).includes(quote));
+    assert.ok((await send('还记得那个半温莎结吗？')).includes(quote));
     assert.ok(!(await send('次日，我到了码头。')).includes(quote));
     const past = [nodes[0], nodes[1], { ...nodes[0], id: 'alternative', text: '嗯。' }];
     assert.deepEqual(buildContext(story, past).info.continuity.automatic, []);
@@ -1258,4 +1258,23 @@ test('直连页面重载后只提示从中断处继续，自动整理不会重�
     assert.equal(requests.length,0);
     assert.equal((await db.get('nodes','a1')).checkpoint,undefined);
   } finally {await db.del('kv',key);}
+});
+
+test('有草稿时上下文预览与随后发送的玩家消息一致', async () => {
+  const {story} = await seedStory();
+  const dispose = await play.render(root,{id:story.id});
+  try {
+    root.querySelector('textarea').value = '我推开房门。';
+    root.querySelector('[aria-label="更多"]').click();
+    const entry = [...document.querySelectorAll('.menu-list button')].find(b=>b.textContent.startsWith('查看发给模型的内容'));
+    entry.click();
+    await wait(()=>document.body.textContent.includes('本轮草稿将发送的内容'));
+    const history = [...document.querySelectorAll('details')].find(d=>d.querySelector('summary').textContent.startsWith('剧情对话')).querySelector('pre').textContent;
+    assert.equal(requests.length,0);
+    button('关闭').click();
+    button('发送').click();
+    await wait(()=>requests.length===1 && !dispose.busy());
+    assert.match(requests[0].body.messages.at(-1).content,/我推开房门/);
+    assert.ok(history.endsWith(requests[0].body.messages.at(-1).content));
+  } finally { dispose(); }
 });
