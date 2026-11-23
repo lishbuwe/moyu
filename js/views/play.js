@@ -561,9 +561,10 @@ export async function render(root, { id }) {
     try {
       // 接回只订阅已创建的任务，不重新发送模型请求。
       if (!resumeJob && ctx.info.totalChars > budgetChars) {
-        const oversized = ctx.info.systemChars >= budgetChars ? '规则、设定、角色卡和前情档案本身' : '最近几轮剧情或本次续写内容';
+        const largest = [...ctx.info.parts,{label:'最近对话与本轮输入',chars:ctx.info.historyChars}]
+          .sort((a,b)=>b.chars-a.chars).slice(0,3).map(p=>p.label+' '+p.chars.toLocaleString()+' 字');
         throw new ApiError('input_budget', '本轮输入超过连接的预算，尚未发送请求', {
-          hint: `${oversized}占用过多。打开“⋯ → 查看发给模型的内容”查看占比；可整理重复内容，或在连接设置里调整输入预算。当前约 ${ctx.info.totalChars.toLocaleString()} 字，预算 ${budgetChars.toLocaleString()} 字。`,
+          hint: `已裁剪可选内容，仍超出 ${(ctx.info.totalChars-budgetChars).toLocaleString()} 字（预算 ${budgetChars.toLocaleString()} 字）。占用最多的是${largest.join('、')}。可在故事设定或角色页精简对应内容，或在设置 → 连接中提高输入预算。`,
         });
       }
       const r = await streamWithRetry(conn, {
@@ -1207,7 +1208,7 @@ export async function render(root, { id }) {
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),
         el('div', {}, '在场（会提醒禁止清单）：', i.present?.length ? i.present.join('、') : '无'),
         el('div', {}, '规则模块：', i.modules?.length ? i.modules.join('、') : '无')),
-      i.materials?.length ? block('本轮选材依据', i.materials.map(m=>[m.source,m.chapter && '第'+m.chapter+'章',m.id,m.reason,m.chars+'字'].filter(Boolean).join(' · ')).join('\n')) : null,
+      i.materials?.length ? block('本轮选材依据', i.materials.map(m=>[m.source,m.chapter && '第'+(m.from && m.from!==m.chapter ? m.from+'–' : '')+m.chapter+'章',m.id,m.reason,m.chars+'字'].filter(Boolean).join(' · ')).join('\n')) : null,
       ...(i.parts || []).map((p) => block(`${p.label} · ${p.chars.toLocaleString()} 字`, p.text)),
       block(`剧情对话 · ${i.historyChars.toLocaleString()} 字`, ctx.messages.map((m) => `【${m.role === 'user' ? '玩家' : 'GM'}】\n${m.content}`).join('\n\n')),
       i.tail ? block('末尾提醒（贴在最后一条玩家消息里）', i.tail.trim(), true) : null,

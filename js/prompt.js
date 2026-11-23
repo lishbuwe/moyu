@@ -295,32 +295,47 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     materials.push({source:'角色卡',id:card.name,chars:sentCards.includes(card) ? promptCard(card).length : 0,
       reason:here ? '近期叙述或导演提及，完整卡；禁止清单在末尾提醒' : card.core ? '离场常驻，仅索引' : '离场非常驻，省略'});
   }
+  const lead = {role:'user',content:cp ? '（更早的剧情见系统提示里的“前情档案”。下面从最近一章接着来。）' : '（更早的剧情因为太长没有发送。下面从这里接着来。）'};
+  const fixedSize = () => size(messages) + system.length + continuationChars + (messages[0]?.role === 'assistant' ? lead.content.length : 0);
   if (continuity) {
-    if (size(messages) + system.length + continuationChars > budgetChars) {
+    const evidence = selection?.verify && selection.candidates.find(({r})=>
+      r.event.length + 18 <= 1200 && !parts.some(p=>p.text.includes(r.event)) && !covered(r.event,recentBodies,cp?.mem.records));
+    const evidenceSpace = evidence ? ('【根据本轮场景召回的较早事实】\n- [第'+evidence.r.sourceFrom+'–'+evidence.r.sourceTo+'章] '+evidence.r.event).length+2 : 0;
+    if (fixedSize() + evidenceSpace > budgetChars) {
       messages = kept.map((n) => message(n)).filter((m) => m.role === 'user' || m.content);
     }
-    const fixedSize = () => size(messages) + system.length + continuationChars;
-    for (const part of [...parts.filter(p=>sentCards.some(c=>!present.includes(c) && p.label === '角色卡 · '+c.name+'（常驻）')), ...parts.filter(p=>p.label === '当前状态')]) {
-      if (fixedSize() <= budgetChars) break;
-      parts.splice(parts.indexOf(part),1);
+    const cardParts = parts.filter(p=>p.kind === 'card');
+    for (const card of [...sentCards].sort((a,b)=>Number(present.includes(a))-Number(present.includes(b)))) {
+      if (fixedSize() + evidenceSpace <= budgetChars) break;
+      const part = cardParts.find(p=>p.label === `角色卡 · ${card.name}${card.core ? '（常驻）' : '（被提到）'}`);
+      if (!part) continue;
+      const here = present.includes(card);
+      if (here) {
+        const state = applyCardState(card,cp?.mem);
+        const shorter = cardText({...state,voice:'',forbid:''},{arcLimit:700});
+        if (shorter.length >= part.text.length) continue;
+        part.text = shorter;
+      } else parts.splice(parts.indexOf(part),1);
+      const entry = materials.find(m=>m.source==='角色卡' && m.id===card.name);
+      if (entry) Object.assign(entry,{chars:here ? part.text.length : 0,reason:here ? '预算不足，省略原话示范' : '预算不足，省略离场索引'});
       cachePrefix = '';
       system = parts.map(p=>p.text).join('\n\n');
-      materials.push({source:part.label,reason:'固定段超过预算，省略',chars:0});
     }
     const selected = new Map();
     const baseline = continuity.chapters.filter((c) => c.index >= recentStart);
     for (const chapter of baseline) selected.set(chapter.id, null);
-    let remaining = budgetChars - system.length - size(messages) - continuationChars;
+    let remaining = budgetChars - fixedSize();
     const recallTitle = '【根据本轮场景召回的较早事实】';
     const recalled = [];
-    function takeFacts(priority) {
+    function takeFacts(priority, firstOnly = false) {
       for (const r of layered?.records.recalled || []) {
-        if (!!coreFact(r) !== priority) continue;
+        if (recalled.some(x=>x.r===r) || (priority != null && !!coreFact(r) !== priority)) continue;
         const line = `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`;
         const chars = line.length + (recalled.length ? 1 : recallTitle.length + 3);
         if (chars > remaining) continue;
         remaining -= chars;
         recalled.push({r, line});
+        if (firstOnly) break;
       }
     }
     if (selection && layered) {
@@ -347,6 +362,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
         changedScene: true,
       }).filter(hit => !known.some(text => text.includes(hit.quote))));
     }
+    if (selection?.verify) takeFacts(null,true);
     takeFacts(true);
     const sceneIds = new Set(continuity.scene.map((c) => c.id));
     const outside = continuity.excerpts.filter(({ chapter }) => !sceneIds.has(chapter.id) && !selected.has(chapter.id));
@@ -412,7 +428,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     const sceneOmitted = continuity.scene.filter((c) => !selected.has(c.id)).map((c) => c.no);
     if (lean) {
       for (const [source, rows] of [['核心',layered?.records.core],['状态',layered?.records.state],['检索',recalled.map(x=>x.r)]]) {
-        for (const r of rows || []) materials.push({source,id:r.id,chapter:r.sourceTo,chars:r.event.length,
+        for (const r of rows || []) materials.push({source,id:r.id,chapter:r.sourceTo,from:r.sourceFrom,chars:r.event.length,
           reason:source==='检索' ? selection.candidates.find(x=>x.r===r)?.matches.join('、') : r.type});
       }
       for (const q of quotes) materials.push({source:'原文摘句',chapter:q.chapter,chars:q.quote.length,
@@ -423,14 +439,16 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     }
     continuityInfo = { kept: keptChapters, excerpts: [...new Set(quotes.map((x) => x.chapter))], omitted, sceneOmitted, automatic };
   }
-  while (!continuity && !compact && messages.length > 6 && size(messages) + system.length + continuationChars > budgetChars) {
-    messages.shift();
-    trimmed++;
+  if (!continuity && fixedSize() > budgetChars) {
+    messages = kept.map(n=>message(n)).filter(m=>m.role==='user' || m.content);
+    const protectedIndex = Math.max(0,recentStart - path.indexOf(recentPath[0]));
+    const removable = recentPath.slice(0,protectedIndex).filter(n=>kept.includes(n) && (n.role==='user' || message(n).content)).length;
+    while (trimmed < removable && fixedSize() > budgetChars) {
+      messages.shift();
+      trimmed++;
+    }
   }
-  // 第一条必须是用户消息（Claude 等接口的要求）；从存档处开始或被截断后，第一条可能是回复
-  if (messages.length && messages[0].role === 'assistant') {
-    messages.unshift({ role: 'user', content: cp ? '（更早的剧情见系统提示里的“前情档案”。下面从最近一章接着来。）' : '（更早的剧情因为太长没有发送。下面从这里接着来。）' });
-  }
+  if (messages[0]?.role === 'assistant') messages.unshift(lead);
   messages.push(...continuationMessages);
   const historyChars = size(messages);
   return {

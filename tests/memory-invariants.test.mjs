@@ -30,3 +30,19 @@ test('仅提到同一物件的段落不能当作档案引文的出处',async()=>
   chapters[1].text='门外传来脚步。';
   assert.equal(passageForFact(chapters,c=>c.text,record,['封袋'],2),undefined);
 });
+
+test('紧预算只舍弃可选素材，保留场景、追问依据与续写断点',()=>{
+  const {story,path}=syntheticStory(60);
+  story.cards[0].voice='长篇语气示例'.repeat(700);
+  const continuationMessages=[{role:'assistant',content:'续写断点在这里。'}];
+  const run=(text,budgetChars)=>buildContext(story,[...path,{role:'user',kind:'play',text}],{budgetChars,continuationMessages});
+  const normal=run('我看了他一眼。',6000);
+  assert.deepEqual(normal.info.retrievalHits,[]);
+  assert.equal(normal.messages.at(-1).content,continuationMessages[0].content);
+  assert.ok(normal.info.totalChars<=6000);
+  const asked=run('以前那本蓝色笔记本背面写的是什么？',6000);
+  assert.ok(asked.system.includes('ANSWER-7421'));
+  assert.deepEqual(asked.info.continuity.kept.slice(-2),[59,60]);
+  assert.ok(asked.info.totalChars<=6000);
+  assert.ok(run('我看了他一眼。',100).info.totalChars>100);
+});
