@@ -115,17 +115,25 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
 }
 
 // 已确认事实后，只回到该事实的来源范围；同一实体可能在多章出现。
-export function passageForFact(chapters, body, record, terms, recentN) {
+export function passageForFact(chapters, body, record, terms, recentN, query = '') {
   const from = record.sourceChapter || record.sourceFrom;
   const to = record.sourceChapter || record.sourceTo;
   let best;
   for (const chapter of chapters.slice(0, -recentN)) {
     if (chapter.no < from || chapter.no > to) continue;
     for (const paragraph of body(chapter).split(/\n+/)) {
-      const matched = terms.filter(term => paragraph.includes(term));
+      const literalClauses = paragraph.split(/[，。！？；]/u).filter(clause =>
+        !/(?:仿佛|好像|就像|像在|像是|像.{1,12}一样|比.{1,32}还)/u.test(clause));
+      const matched = terms.filter(term => literalClauses.some(clause => clause.includes(term)));
       if (!matched.length) continue;
+      if (/还在.{1,10}那|在谁|谁.{0,3}(收着|留着|保管|持有)/u.test(query) &&
+          !literalClauses.some(clause => /收着|留着|保管|持有|交给|还给|放在/.test(clause))) continue;
       const start = Math.max(0, paragraph.indexOf(matched[0]) - 100);
       const quote = paragraph.slice(start, start + 400);
+      // A topic word alone also matches incidental comparisons in unrelated scenes.
+      const context = record.event.split(/[^\p{L}\d]+/u).flatMap(word =>
+        Array.from({length: Math.max(0, word.length - 2)}, (_, i) => word.slice(i, i + 3)));
+      if (!context.some(fragment => literalClauses.some(clause => clause.includes(fragment)) && quote.includes(fragment) && !matched.some(term => term.includes(fragment)))) continue;
       const score = matched.reduce((sum,t)=>sum+t.length,0) + (quote.includes(record.event) ? 1000 : 0);
       if (!best || best.score < score) best = { chapter, quote, score, key:'fact-'+record.id,
         reason:matched.join('、')+' · '+record.id, fresh:true, rounds:1 };

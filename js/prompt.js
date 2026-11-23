@@ -319,7 +319,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
         room -= r.event.length + 18;
         sources.push(r.event);
         if (selection.verify && !continuity.excerpts.some(e=>e.key)) {
-          const hit = passageForFact(continuity.chapters,continuity.body,r,matches,recentN);
+          const hit = passageForFact(continuity.chapters,continuity.body,r,matches,recentN,user?.text);
           if (hit) continuity.excerpts.push(hit);
         }
         if (layered.records.recalled.length >= 5) break;

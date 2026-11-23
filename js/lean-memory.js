@@ -44,6 +44,34 @@ function fit(rows, cap, max = Infinity) {
 }
 const render = rows => rows.map(r=>'- [第'+r.sourceFrom+'–'+r.sourceTo+'章] '+r.event).join('\n');
 
+// A repeated inscription is a strong anchor across overlapping chapter summaries.
+// Prefer the complete quotation, including a signature, for wording questions.
+function wordingCandidates(hits, query) {
+  const asksHolder = /还在.{1,10}那|谁.{0,3}(收着|留着|保管|持有)|在谁/.test(query);
+  if (!asksHolder && !/写|原话|落款|留言|题词/.test(query)) return hits;
+  const holders = [];
+  const selected = [];
+  const quotations = [];
+  for (const hit of hits) {
+    const quotes = [...hit.r.event.matchAll(/[「“]([^」”]+)[」”]/gu)];
+    const words = quotes.length === 1 && quotes[0][1].replace(/[\s\p{P}]/gu, '');
+    const holder = asksHolder && hit.r.event.match(/(?:由|[，。；])([\p{Script=Han}]{2,4}?)(?:收着|留着|保管|持有)/u)?.[1];
+    const index = words && words.length >= 5 ? quotations.findIndex((other, i) =>
+      other && (!asksHolder || (holder && holders[i] && (holder.endsWith(holders[i]) || holders[i].endsWith(holder)))) && (other.startsWith(words) || words.startsWith(other)) &&
+      selected[i].matches.some(term => hit.matches.includes(term))) : -1;
+    if (index < 0) {
+      selected.push(hit);
+      quotations.push(words);
+      holders.push(holder);
+    } else if (words.length > quotations[index].length) {
+      selected[index] = hit;
+      quotations[index] = words;
+      holders[index] = holder;
+    }
+  }
+  return selected;
+}
+
 export function leanMemory(mem, query, director, lastBody, aliases, present) {
   const all = activeRecords(mem).filter(r=>typeof r.event === 'string' && r.event.trim());
   const vocab = new Set(aliases);
@@ -81,5 +109,5 @@ export function leanMemory(mem, query, director, lastBody, aliases, present) {
   }
   hits.sort((a,b)=>b.score-a.score||(b.r.importance||0)-(a.r.importance||0)||b.r.sourceTo-a.r.sourceTo);
   return {core:render(core),state:render(state),hits:[],coreOmitted:0,records:{core,state,recalled:[]},
-    candidates:hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
+    candidates:verify ? wordingCandidates(hits, query) : hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
 }
