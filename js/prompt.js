@@ -177,7 +177,7 @@ export function latestCheckpoint(path) {
 export function applyCardState(card, mem) {
   const s = mem?.cards?.[card.name];
   if (!s) return card;
-  return { ...card, now: s.now ?? card.now, arc: s.arc ?? card.arc, relation: s.relation ?? card.relation };
+  return { ...card, brief: s.brief ?? card.brief, now: s.now ?? card.now, arc: s.arc ?? card.arc, relation: s.relation ?? card.relation };
 }
 
 const bullet = (arr) => (arr || []).map((x) => String(x || '').trim()).filter(Boolean).map((x) => '- ' + x.replace(/^[-*•·]\s*/, '')).join('\n');

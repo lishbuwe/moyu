@@ -143,6 +143,8 @@ export async function render(root, { id }) {
       return { name, now, arc, rel };
     });
 
+    for (const [name,card] of Object.entries(m.cards || {})) if (card.relation?.length > 800)
+      wrap.append(el('div',{class:'hint',text:name+'的关系档案超过800字，可在角色状态里核对。'}));
     const last = m.lastRun;
     if (last) wrap.append(el('div', {class:'hint', text:`上次整理 · 第 ${last.from}–${last.to} 章 · ${last.model || ''}${last.cost ? ' · ' + fmtMoney(last.cost) : ''}`}));
     if (last?.omitted) wrap.append(el('div',{class:'hint',text:'上次整理有 '+last.omitted+' 条旧记录未展示给存档员。'}));

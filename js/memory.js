@@ -87,13 +87,21 @@ function recentRows(rows, cap, textOf = String) {
 
 const mutableFields = ['items','threads','knowledge','offscreen','repeats'];
 
+function arcParts(arc) {
+  const rows = (arc || '').trim().split(/\n+/);
+  if (rows.join('\n').length <= 1200 || rows.length < 2) return null;
+  const split = Math.ceil(rows.length/2);
+  return {early:rows.slice(0,split).join('\n'),recent:rows.slice(split).join('\n')};
+}
+
 export function archivistPrompt(story, prev, batch) {
   const cards = (story.cards || []).filter((c) => c.name?.trim()).map((c) => {
     const s = applyCardState(c, prev);
+    const arc = arcParts(s.arc);
     return [`· ${c.name}${c.aliases?.trim() ? '（' + c.aliases.trim() + '）' : ''}`,
       c.initial?.trim() ? '  初始设定：' + c.initial.trim().slice(0, 300) : '',
       s.now?.trim() ? '  当前状态：' + s.now.trim() : '',
-      s.arc?.trim() ? '  变化轨迹：' + s.arc.trim().slice(-600) : '',
+      s.arc?.trim() ? '  变化轨迹：' + (arc ? '【可压缩的早期轨迹】'+arc.early+'\n【近期轨迹】'+arc.recent.split('\n').slice(-8).join('\n') : s.arc.trim()) : '',
       s.relation?.trim() ? '  关系档案：' + s.relation.trim() : ''].filter(Boolean).join('\n');
   }).join('\n');
   const from = batch[0].no;
@@ -125,7 +133,7 @@ export function archivistPrompt(story, prev, batch) {
         threads: ['仅新增的条目，修改或结束已有条目用 changes：未决事项、承诺、暗线、已选但未演绎完的行动，以及玩家明确保留的后续提案。标明发生状态与具体内容，不只记选项字母；未选且未保留的提案不列为待办，已经解决的删掉。资料没有对应内容时放 unsure，不脑补'],
         knowledge: ['仅新增的条目，修改或结束已有条目用 changes：重要的信息差，写成“某事：谁知道／谁不知道（从什么渠道知道）”，尤其写清主角自己知道什么'],
         memories: [{ event: '本章具体事件或改变的事实，一条一件；无法确定归属章节就留空', sourceChapter: from,
-          people: ['涉及的人物'], location: '地点，不确定则空字符串', items: ['物品和别名'], type: '关系/事实/承诺/物品/暗线',
+          brief:'不可逆事实可给40字内准确简版，保留限定条件；否则留空', people: ['涉及的人物，用角色卡名'], location: '地点，不确定则空字符串', items: ['物品和别名'], type: '关系/事实/承诺/物品/暗线',
           importance: 7, irreversible: false, knowers: ['逐条列出明确亲历或被告知此事的人名；公开发布且公众能获知的事实加入“公开”。公开场合的私语、内心和幕后动机单独记。无法确定就空数组'], tags: ['称呼、别名和可检索的关键词'], replaces: ['被覆盖的旧记忆 ID；无法确定就空数组'] }],
         offscreen: ['仅新增的条目，修改或结束已有条目用 changes：主角看不见的地方，各角色接下来想做什么、正在做什么（只写正文里有迹可循的）'],
         repeats: ['最近这一段里反复出现、开始变成套路的互动或写法，接下来该避开的；没有就空数组'],
@@ -140,7 +148,7 @@ export function archivistPrompt(story, prev, batch) {
           now: '现在走到哪一步、对主角的立场、彼此怎么称呼',
           relation: '和主角的关系：相处梗、称呼、约定',
         }],
-        cards: { 角色名: { now: '现在走到哪一步、对主角的立场、彼此怎么称呼（整段重写成最新的）', arcAdd: '这一段里让他发生变化的节点：第几章、发生了什么、哪里变了哪里没变；没有就空字符串', relation: '和主角的关系档案：相处梗、称呼史、生效的约定、亲密档案。保留仍有影响的旧事，记关键场合、具体动作或原话和对方反应；单次试探不写成固定习惯，没确认的感情保留余地' } },
+        cards: { 角色名: { now:'当前称呼和对主角的立场。', brief:'当前关系与称呼的一句话，最多40字', arcAdd:'默认留空。称呼、立场、关系、身份或能力确实变化时才写：第N章，从X变成Y。', arcSummary:'仅对标为可压缩的早期轨迹写一句整体走向，最多200字；不能准确概括则空。', relation:'按人物分行，400字内写当前态度、动机与分寸。变化用已不再……表述。旧事件、道具和原话记录为事实。' } },
         conflicts: ['新剧情和已有设定或档案矛盾的地方（不要自己改，列出来给玩家裁决）'],
         unsure: ['拿不准的地方'],
         ...(story.memoryMode !== 'full' ? {
@@ -176,9 +184,14 @@ function merge(prev, j, from, to, story) {
       const card = (story.cards || []).find((c) => c.name === name);
       const old = applyCardState(card, prev);
       const arcAdd = String(v.arcAdd || '').trim();
+      const arc = arcParts(old.arc);
+      const summary = typeof v.arcSummary === 'string' ? v.arcSummary.trim() : '';
+      const history = arc && summary && summary.length <= 200 ? '【整体走向】'+summary+'\n'+arc.recent : old.arc?.trim();
+      const brief = typeof v.brief === 'string' ? v.brief.trim() : '';
       m.cards[name] = {
+        brief:brief && brief.length <= 40 ? brief : (v.now || v.relation ? '' : old.brief || ''),
         now: String(v.now || '').trim() || old.now || '',
-        arc: [old.arc?.trim(), arcAdd].filter(Boolean).join('\n'),
+        arc: [history, arcAdd && !history?.split('\n').includes(arcAdd) ? arcAdd : ''].filter(Boolean).join('\n'),
         relation: String(v.relation || '').trim() || old.relation || '',
       };
     }

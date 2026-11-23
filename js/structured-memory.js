@@ -84,7 +84,7 @@ export function syncStructured(mem, next, { from = mem.upTo, to = mem.upTo, bran
     }
     const hint = metadata.find((x) => clean(x.event || x.text) === d.text) || {};
     mem.records.push(atom(d.column, d.text, d.from, d.to, branchId, {
-      people: Array.isArray(hint.people) ? hint.people.map(clean) : [], location: clean(hint.location),
+      brief: typeof hint.brief === 'string' && hint.brief.length <= 40 ? hint.brief.trim() : '', people: Array.isArray(hint.people) ? hint.people.map(clean) : [], location: clean(hint.location),
       items: Array.isArray(hint.items) ? hint.items.map(clean) : [], type: clean(hint.type) || types[d.column],
       importance: Math.max(1, Math.min(10, Number(hint.importance) || importance[d.column] || 5)),
       irreversible: d.column === 'irreversible' || hint.irreversible === true,
@@ -105,7 +105,7 @@ export function addEvents(mem, events, from, to, branchId) {
     const at = Number.isInteger(chapter) && chapter >= from && chapter <= to ? chapter : null;
     for (const r of mem.records) if (r.column === 'event' && !r.irreversible && Array.isArray(x.replaces) && x.replaces.includes(r.id) && r.invalidatedAt == null) { r.invalidatedAt = at || to; r.invalidatedBy = 'replacement'; }
     mem.records.push(atom('event', x.event, at || from, at || to, branchId, {
-      people: Array.isArray(x.people) ? x.people.map(clean) : [], location: clean(x.location),
+      brief: typeof x.brief === 'string' && x.brief.length <= 40 ? x.brief.trim() : '', people: Array.isArray(x.people) ? x.people.map(clean) : [], location: clean(x.location),
       items: Array.isArray(x.items) ? x.items.map(clean) : [], type: clean(x.type) || 'event',
       importance: Math.max(1, Math.min(10, Number(x.importance) || 5)), irreversible: x.irreversible === true,
       knowers: Array.isArray(x.knowers) ? x.knowers.map(clean) : [], tags: Array.isArray(x.tags) ? x.tags.map(clean) : [],
