@@ -119,6 +119,7 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
 export function passageForFact(chapters, body, record, terms, recentN, query = '') {
   const from = record.sourceChapter || record.sourceFrom;
   const to = record.sourceChapter || record.sourceTo;
+  const quotations = [...record.event.matchAll(/[「“]([^」”]{3,})[」”]/gu)].map(m=>m[1]);
   let best;
   for (const chapter of chapters.slice(0, -recentN)) {
     if (chapter.no < from || chapter.no > to) continue;
@@ -129,6 +130,7 @@ export function passageForFact(chapters, body, record, terms, recentN, query = '
       if (!matched.length) continue;
       const start = Math.max(0, paragraph.indexOf(matched[0]) - 100);
       const quote = paragraph.slice(start, start + 400);
+      if (quotations.length && !quotations.some(words=>quote.includes(words))) continue;
       // A topic word alone also matches incidental comparisons in unrelated scenes.
       const context = record.event.split(/[^\p{L}\d]+/u).flatMap(word =>
         Array.from({length: Math.max(0, word.length - 2)}, (_, i) => word.slice(i, i + 3)));

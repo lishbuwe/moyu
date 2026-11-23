@@ -33,3 +33,12 @@ test('没有浏览器分词支持时，明确追问仍能检索记录',()=>{
   `],{cwd:new URL('../',import.meta.url),encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);
 });
+
+test('仅提到同一物件的段落不能当作档案引文的出处',async()=>{
+  const {passageForFact}=await import('../js/recall.js');
+  const record={id:'r',sourceFrom:1,sourceTo:2,event:'封袋的封口印着「'+randomUUID()+'」'};
+  const chapters=[{no:1,text:'他看着封袋的封口。'},{no:2,text:record.event},{no:3},{no:4}];
+  assert.equal(passageForFact(chapters,c=>c.text,record,['封袋'],2).chapter.no,2);
+  chapters[1].text='门外传来脚步。';
+  assert.equal(passageForFact(chapters,c=>c.text,record,['封袋'],2),undefined);
+});
