@@ -266,7 +266,22 @@ export async function exportStory(storyId) {
   const story = await db.get('stories', storyId);
   const nodes = await db.byStory(storyId);
   const extras = await db.extrasOf(storyId);
-  return { app: 'moyu', schema: SCHEMA, exportedAt: Date.now(), stories: [story], nodes: backupNodes(nodes), extras: backupExtras(extras), connections: [] };
+  const ids = [...new Set([story?.connectionId, story?.memConnId].filter(Boolean))];
+  const linked = await Promise.all(ids.map(id => db.get('connections', id)));
+  const connections = linked.filter(Boolean).map(c => {
+    const fields = ['id','name','format','model','region','maxTokens','inputBudgetChars','mt8000',
+      'temperature','stream','viaRelay','promptCache','priceIn','priceOut','priceCache','currency','priceMode','pricePerCall'];
+    const config = Object.fromEntries(fields.filter(k => k in c).map(k => [k,c[k]]));
+    let baseUrl = '';
+    if (c.baseUrl) {
+      try {
+        const url = new URL(c.baseUrl);
+        if (['https:', 'http:'].includes(url.protocol) && !(c.apiKey && url.pathname.includes(c.apiKey))) baseUrl = url.origin + url.pathname;
+      } catch {}
+    }
+    return { ...config, baseUrl, apiKey: '' };
+  });
+  return { app: 'moyu', schema: SCHEMA, exportedAt: Date.now(), stories: [story], nodes: backupNodes(nodes), extras: backupExtras(extras), connections };
 }
 
 /** 导入：同 id 的故事会被覆盖；连接只补充不存在的（不覆盖本机已有密钥） */

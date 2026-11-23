@@ -13,7 +13,7 @@ globalThis.requestAnimationFrame = fn => setTimeout(fn, 0); globalThis.cancelAni
 globalThis.confirm = () => true;
 dom.window.HTMLElement.prototype.scrollIntoView = function() {};
 const style = document.createElement('style'); style.textContent = await readFile(new URL('../css/app.css', import.meta.url), 'utf8'); document.head.append(style);
-const { db, exportAll, importData } = await import('../js/db.js');
+const { db, exportStory, exportAll, importData } = await import('../js/db.js');
 const { readAttachment, attachmentBytes, selectedImport } = await import('../js/attachments.js');
 const { chatMessages, newDiscussion, saveDiscussion, getDiscussion, exportDiscussions } = await import('../js/discuss.js');
 const { markdownPack, importMarkdownPack, groupModules, deleteModules, undoModuleDelete } = await import('../js/rules.js');
@@ -1342,4 +1342,20 @@ test('整理时补写旧核心简版，旧正文与历史节点保真',async()=>
   assert.equal(rec.brief,undefined);
   const updated=next.checkpoint.records.find(r=>r.id===rec.id);
   assert.equal(updated.brief,brief);assert.equal(updated.event,event);
+});
+
+test('单故事分享只带关联的无密钥配置，导回保留本机凭据', async()=>{
+  const {story}=await seedStory();
+  const c={id:'arch',format:'vertex',apiKey:'fake-private-material',baseUrl:'https://a:b@model.example/v1?key=other-secret'};
+  await db.put('connections',c);
+  await db.put('connections',{id:'unrelated'});
+  Object.assign(story,{connectionId:'qa-conn',memConnId:c.id});
+  await db.put('stories',story);
+  const file=await exportStory(story.id);
+  assert.deepEqual(file.connections.map(c=>c.id),['qa-conn','arch']);
+  assert.ok(file.connections.every(c=>c.apiKey===''));
+  assert.equal(file.connections[1].baseUrl,'https://model.example/v1');
+  assert.doesNotMatch(JSON.stringify(file),/virtual-key|fake-private-material|other-secret/);
+  await importData(file);
+  assert.equal((await db.get('connections',c.id)).apiKey,c.apiKey);
 });
