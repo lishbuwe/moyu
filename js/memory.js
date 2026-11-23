@@ -40,34 +40,7 @@ function parseJson(raw) {
   const a = t.indexOf('{');
   const b = t.lastIndexOf('}');
   if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch {} }
-  if (a < 0) throw new Error('没有找到 JSON');
-  return repairJson(t.slice(a));
-}
-
-/** 写到一半被截断的 JSON：退回到最后一个完整的值，把没关的括号补上 */
-export function repairJson(t) {
-  const closersAt = (str) => {
-    const stack = [];
-    let inStr = false, esc = false;
-    for (const ch of str) {
-      if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
-      if (ch === '"') inStr = true;
-      else if (ch === '{') stack.push('}');
-      else if (ch === '[') stack.push(']');
-      else if (ch === '}' || ch === ']') stack.pop();
-    }
-    return inStr ? null : stack.reverse().join('');
-  };
-  let cut = t.length;
-  for (let tries = 0; tries < 400 && cut > 1; tries++) {
-    let head = t.slice(0, cut).replace(/[\s,:]+$/, '');
-    const close = closersAt(head);
-    if (close != null) { try { const j = JSON.parse(head + close); j.__repaired = true; return j; } catch {} }
-    const prev = Math.max(t.lastIndexOf(',', cut - 1), t.lastIndexOf('[', cut - 1) + 1, t.lastIndexOf('{', cut - 1) + 1);
-    if (prev <= 0 || prev >= cut) break;
-    cut = prev;
-  }
-  throw new Error('JSON 不完整');
+  throw new Error('没有完整的 JSON 对象');
 }
 
 function chapterBlock(c) {
@@ -282,6 +255,15 @@ export async function archiveRecovery(storyId, firstId) {
 }
 
 export async function runArchivist(story, nodes, path, conn, opts = {}) {
+  const locks = globalThis.navigator?.locks;
+  if (locks?.request) return locks.request('moyu-archive-'+story.id,{ifAvailable:true}, lock=>{
+    if (!lock) throw Object.assign(new Error('这个故事正在另一个页面整理'),{kind:'busy'});
+    return runLocalArchivist(story,nodes,path,conn,opts);
+  });
+  return runLocalArchivist(story,nodes,path,conn,opts);
+}
+
+async function runLocalArchivist(story,nodes,path,conn,opts) {
   if (active.has(story.id)) { const e = new Error('这个故事正在整理前情，等它完成再试'); e.kind = 'busy'; throw e; }
   const info = { text: '正在整理前情', ctrl: opts.ctrl || null };
   active.set(story.id, info);
@@ -344,7 +326,7 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
     if (!saved?.result) track(r, p.system.length + p.user.length);
     let j;
     try { j = parseJson(raw); } catch { j = null; }
-    if (!j || j.__repaired || r.truncated || typeof j.summary !== 'string' || !j.summary.trim()) {
+    if (!j || r.truncated || typeof j.summary !== 'string' || !j.summary.trim()) {
       const reason = r.truncated ? '回复达到输出上限' : '回复未包含完整有效的剧情摘要';
       const e = new Error(`第 ${from}–${to} 章整理已暂停：${reason}`);
       e.detail = (raw.length > 1500 ? raw.slice(0, 700) + '\n……\n' + raw.slice(-700) : raw);

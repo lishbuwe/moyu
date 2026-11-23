@@ -1,16 +1,16 @@
+import {searchWords} from './search-terms.js';
 // 只在故事选择精简方案时调用。角色卡和历史存档保持原样。
 import { activeRecords } from './structured-memory.js';
 const past = /以前|之前|上次|上回|那次|当初|曾经|还记得|记不记得|早先|先前/;
 const question = /[?？吗呢]|什么|哪|怎么|多少/;
 const pointer = /这个|那个|那张|那件|这张|这件|它|翻过来/;
 const edge = /^[了着过的地得]|[了着过的地得]$/;
-const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh',{granularity:'word'}) : null;
 
 function lexicalTerms(text) {
   const groups = text.replace(new RegExp(past.source+'|'+pointer.source+'|'+question.source,'g'),' ').match(/[\p{L}\d]+/gu) || [];
   const terms = new Set();
   for (const group of groups) {
-    const words = segmenter ? [...segmenter.segment(group)].map(s=>s.segment) : [group];
+    const words = searchWords(group);
     for (let i=0;i<words.length;i++) for (const term of [words[i],words.slice(i,i+2).join(''),group]) {
       if (term.length >= 2 && !edge.test(term)) terms.add(term);
     }
@@ -68,7 +68,7 @@ export function leanMemory(mem, query, director, lastBody, aliases, present, cor
     const tail=lastBody.slice(-260);
     terms=[...vocab].filter(t=>t && tail.includes(t)).sort((a,b)=>(tail.lastIndexOf(b)+b.length)-(tail.lastIndexOf(a)+a.length)||b.length-a.length).slice(0,1);
   }
-  const intent=past.test(query) || (pointer.test(query) && question.test(query));
+  const intent=(past.test(query) && (question.test(query) || terms.length > 0)) || (pointer.test(query) && question.test(query));
   const verify=question.test(query) && (intent || terms.some(t=>items.has(t)));
   
   const topicTerms = lexicalTerms(query);

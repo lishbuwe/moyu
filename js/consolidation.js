@@ -45,8 +45,13 @@ export function editionMemory(mem, edition) {
   for (const g of edition.groups) {
     if (!g.sources.every(s => current.get(s.id)?.event === s.text && !remove.has(s.id))) continue;
     const rows = g.sources.map(s => current.get(s.id));
+    // 合并后整段只能给能读取所有来源的人。不同知情范围的记录分别保留。
+    const scope = r=>JSON.stringify([...new Set(r.knowers || [])].sort());
+    if (rows.some(r=>scope(r)!==scope(rows[0]))) continue;
     rows.forEach(r => remove.add(r.id));
     additions.push({ ...rows[0], id:'edition-' + rows[0].id, column:'summaries', type:'event', event:g.text,
+      sourceChapter:rows.every(r=>r.sourceChapter === rows[0].sourceChapter) ? rows[0].sourceChapter ?? null : null,
+      location:[...new Set(rows.map(r=>r.location).filter(Boolean))].join('、'),
       sourceFrom:Math.min(...rows.map(r=>r.sourceFrom)), sourceTo:Math.max(...rows.map(r=>r.sourceTo)),
       importance:g.kind === '转折' ? 8 : 3, tags:[...new Set(rows.flatMap(r=>r.tags || []))],
       people:[...new Set(rows.flatMap(r=>r.people || []))], items:[...new Set(rows.flatMap(r=>r.items || []))] });

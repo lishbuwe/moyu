@@ -1309,3 +1309,11 @@ test('超过三十条的未决事项休眠，下一次整理仍保留可检索�
     assert.ok(old.dormant);assert.equal(old.invalidatedAt,null);
   }
 });
+
+test('较旧的故事副本不能覆盖另一个页面已保存的修改',async()=>{
+  const {story}=await seedStory();
+  const a=await db.get('stories',story.id), b=await db.get('stories',story.id);
+  a.title='更新后的标题';await db.put('stories',a);
+  b.title='过期标题';await assert.rejects(db.put('stories',b),/别处更新/);
+  assert.equal((await db.get('stories',story.id)).title,a.title);
+});

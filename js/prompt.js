@@ -248,7 +248,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     add('当前状态', `【当前状态和未决事项】\n${current}`, 'memory');
   }
   // 只在稳定前缀末尾放缓存断点；本轮命中的模块和非核心角色不会使它失效。
-  const cachePrefix = parts.map((p) => p.text).join('\n\n');
+  let cachePrefix = parts.map((p) => p.text).join('\n\n');
   for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
   for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, promptCard(c), 'card');
   add('玩家输入约定', INPUT_CONVENTION, 'rules');
@@ -298,6 +298,14 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   if (continuity) {
     if (size(messages) + system.length + continuationChars > budgetChars) {
       messages = kept.map((n) => message(n)).filter((m) => m.role === 'user' || m.content);
+    }
+    const fixedSize = () => size(messages) + system.length + continuationChars;
+    for (const part of [...parts.filter(p=>sentCards.some(c=>!present.includes(c) && p.label === '角色卡 · '+c.name+'（常驻）')), ...parts.filter(p=>p.label === '当前状态')]) {
+      if (fixedSize() <= budgetChars) break;
+      parts.splice(parts.indexOf(part),1);
+      cachePrefix = '';
+      system = parts.map(p=>p.text).join('\n\n');
+      materials.push({source:part.label,reason:'固定段超过预算，省略',chars:0});
     }
     const selected = new Map();
     const baseline = continuity.chapters.filter((c) => c.index >= recentStart);

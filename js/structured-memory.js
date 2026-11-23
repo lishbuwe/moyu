@@ -1,3 +1,4 @@
+import {searchWords} from './search-terms.js';
 // 每份章节档案仍挂在原节点；records 保留各条的来源、版本与失效历史。
 // legacy 是迁移前的原文副本，供核对和备份，任何编辑都不覆盖它。
 const LISTS = ['irreversible', 'corrections', 'items', 'threads', 'knowledge', 'offscreen', 'repeats'];
@@ -128,7 +129,7 @@ export async function migrateCheckpoints(nodes, db) {
 
 const alias = { 本子: ['本', '笔记本', '速写本', '日记本', '手账'], 停电: ['断电', '没电', '电闸'], 戒指: ['指环'], 信: ['信件', '书信'] };
 const words = (s) => [...new Set((clean(s).toLowerCase().match(/[\p{Script=Han}]{2,}|[a-z0-9]{2,}/gu) || []).flatMap((w) => {
-  const bits = [w];
+  const bits = [w,...searchWords(w).filter(t=>t.length>=2)];
   if (w.length > 3 && /[\p{Script=Han}]/u.test(w)) for (let i = 0; i < w.length - 1; i++) bits.push(w.slice(i, i + 2));
   for (const [name, variants] of Object.entries(alias)) if (w.includes(name)) bits.push(name, ...variants);
   return bits;

@@ -60,8 +60,10 @@ function reportWriteError(e) {
   console.error('[墨游] 保存失败', e);
 }
 
+const readStories = new WeakSet();
 function readStory(story) {
   if (story && [1, 15].includes(Number(story.memEvery)) && !story.memEveryExplicit) story.memEvery = 10;
+  if (story) readStories.add(story);
   return story;
 }
 
@@ -73,7 +75,22 @@ export const db = {
   async put(store, value, key) {
     let r;
     try {
-      r = await run(store, 'readwrite', (os) => (key === undefined ? os.put(value) : os.put(value, key)));
+      if (store === 'stories') {
+        const snapshot = structuredClone(value);
+        let conflict = false;
+        await run(store,'readwrite',(os,tx)=>{
+          const read = os.get(snapshot.id);
+          read.onsuccess = ()=>{
+            if (read.result && (snapshot.writeRevision != null || readStories.has(value)) && (read.result.writeRevision || 0) !== (snapshot.writeRevision || 0)) {
+              conflict = true; tx.abort(); return;
+            }
+            snapshot.writeRevision = (read.result?.writeRevision || 0)+1;
+            os.put(snapshot);
+          };
+        }).catch(e=>{ throw conflict ? new Error('故事已在别处更新，请刷新后重试') : e; });
+        value.writeRevision = snapshot.writeRevision;
+        r = snapshot.id;
+      } else r = await run(store, 'readwrite', (os) => (key === undefined ? os.put(value) : os.put(value, key)));
     } catch (e) { reportWriteError(e); throw e; }
     // 告诉其他还开着的页面（比如在后台继续生成的游玩页）：这条数据变了
     if (store !== 'kv') notifyPut(store, value);

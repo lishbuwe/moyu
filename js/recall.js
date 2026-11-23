@@ -1,13 +1,13 @@
+import {searchWords} from './search-terms.js';
 // 旧正文检索在本机完成。只对当前分支上的正文建立索引。
 const indexes = new WeakMap();
 const stop = new Set('我们 你们 他们 她们 什么 一个 这个 那个 这样 那样 不是 没有 有点 一下 一眼 一会 看着 说道 说着 之后 的时候 自己 继续 我想 他说 她说 以前 之前 当时 当初 记得 后来'.split(' '));
 export const HOLD_ROUNDS = 3;
 const MAX_HITS = 3;
 
-const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh', {granularity:'word'}) : null;
 function terms(text) {
   const words = text.normalize('NFKC').toLowerCase();
-  const tokens = segmenter ? Array.from(segmenter.segment(words), part => part.segment) : words.match(/[\p{L}\d]+/gu) || [];
+  const tokens = searchWords(words);
   return new Set(tokens.filter(word => word.length >= 2 && !stop.has(word) && /[\p{L}\d]/u.test(word)));
 }
 
