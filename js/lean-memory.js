@@ -60,7 +60,7 @@ export function leanMemory(mem, query, director, lastBody, aliases, present, cor
   const vocab = new Set(aliases);
   const items = new Set();
   for (const r of all) {
-    for (const t of [...(r.people||[]),...(r.items||[]),...(r.tags||[]),r.location]) if (typeof t==='string' && t.length>=2 && !edge.test(t)) vocab.add(t);
+    for (const t of [...(r.people||[]),...(r.items||[]),...(r.tags||[]),r.location]) if (typeof t==='string' && t.length>=2) vocab.add(t);
     for (const t of r.items||[]) items.add(t);
   }
   let terms = [...vocab].filter(t=>t && query.includes(t));
