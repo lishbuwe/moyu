@@ -90,26 +90,35 @@ export function leanMemory(mem, query, director, lastBody, aliases, present) {
   
   const topicTerms = lexicalTerms(query);
   if (!intent && !director) terms = terms.filter(term => !aliases.includes(term));
-  const fastPath = !director && !intent && !terms.length;
+  const examines = /翻过来|查看|辨认|读出|念出|打开看看/u.test(query);
+  const fastPath = !director && !intent && !verify && !examines;
   if (intent) terms = [...new Set([...terms, ...topicTerms.filter(t=>{
     const n=all.filter(r=>r.event.includes(t)).length;
     return n>0 && n<=Math.max(1,all.length*0.15);
   })])];
   const ranked=[...all].sort((a,b)=>(b.importance||0)-(a.importance||0)||b.sourceTo-a.sourceTo);
-  const core=fit(ranked.filter(r=>r.type!=='knowledge' && (r.irreversible || r.type==='correction')),600,8);
+  // Keep the current relationship visible without sending unrelated history bundled after it.
+  const displayCore = row => {
+    const [first, ...rest] = row.event.split(/[；;]/u);
+    if (!rest.length || !/恋人|伴侣|交往|夫妻|婚约|兄妹|兄弟|搭档|挚友/u.test(first)) return row;
+    return {...row, event:first};
+  };
+  const core=fit(ranked.filter(r=>r.type!=='knowledge' && (r.irreversible || r.type==='correction')).map(displayCore),600,8);
   const knowledge=fit(ranked.filter(r=>r.type==='knowledge' && [...r.people||[],...r.knowers||[]].some(n=>present.includes(n))),600);
   core.push(...knowledge);
   // 只有明确描述当前归属的短项可以常驻，带历史或引文的混合记录留待检索。
-  const state=fit(all.filter(r=>r.type==='thread' || (r.type==='item' && /^[^。！？：“”\n]{1,28}(?:现由|目前由)[^。！？：“”\n]{1,16}(?:保管|持有)[。]?$/u.test(r.event))).sort((a,b)=>b.sourceTo-a.sourceTo),900);
+  const sceneTerms = [...new Set([...lexicalTerms(lastBody.slice(-300)), ...lexicalTerms(query)])]
+    .filter(term => term.length >= 2 && !present.includes(term) && !aliases.includes(term) && !edge.test(term));
+  const state=fit(all.filter(r => sceneTerms.some(term => r.event.includes(term))).filter(r=>r.type==='thread' || (r.type==='item' && /^[^。！？：“”\n]{1,28}(?:现由|目前由)[^。！？：“”\n]{1,16}(?:保管|持有)[。]?$/u.test(r.event))).sort((a,b)=>b.sourceTo-a.sourceTo),900);
   const hits=[];
   for (const r of all) {
-    if (fastPath || core.includes(r) || state.includes(r)) continue;
+    if (fastPath || core.some(sent => sent.id === r.id && sent.event === r.event) || state.includes(r)) continue;
     if (['style','plan'].includes(r.type) && !(director && /套路|写法|暗处|幕后/.test(director))) continue;
     const labels=[r.event,...r.people||[],...r.items||[],...r.tags||[],r.location].filter(Boolean).join(' ');
     const matches=terms.filter(t=>labels.includes(t));
     if (matches.length) hits.push({r,matches,score:matches.reduce((s,t)=>s+t.length,0)});
   }
   hits.sort((a,b)=>b.score-a.score||(b.r.importance||0)-(a.r.importance||0)||b.r.sourceTo-a.r.sourceTo);
-  return {core:render(core),state:render(state),hits:[],coreOmitted:ranked.filter(r => (r.irreversible || r.type === 'correction') && !core.includes(r)).length,records:{core,state,recalled:[]},
+  return {core:render(core),state:render(state),hits:[],coreOmitted:ranked.filter(r => (r.irreversible || r.type === 'correction') && !core.some(sent => sent.id === r.id)).length,records:{core,state,recalled:[]},
     candidates:verify ? wordingCandidates(hits, query) : hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
 }

@@ -21,7 +21,7 @@ for(const n of [120,364]) for(const marked of [true,false]) test('A F H I K L '+
 for(const migrated of [true,false]) test('D E precise source '+migrated,()=>{
   const c=run(syntheticStory(120,{migrated}),question);
   assert.deepEqual(c.info.retrievalHits.map(r=>r.id),['book']);
-  assert.deepEqual(c.info.continuity.excerpts,[40]);
+  assert.deepEqual(c.info.continuity.excerpts,[]);
   for(const p of c.info.parts.filter(p=>!['历史记忆检索','较早互动原文'].includes(p.label))) assert.doesNotMatch(p.text,/ANSWER-/);
 });
 test('B C pronoun resolves from last paragraph',()=>{
@@ -50,4 +50,17 @@ test('旧档第59章的普通动作不召回第33章，明确问剑时仍能找�
   assert.deepEqual(ordinary.info.continuity.kept,[58,59]);
   assert.doesNotMatch(ordinary.system,/旧塔的井底/);
   assert.ok(run(f,'还记得那把石中剑吗？').system.includes('旧塔的井底'));
+});
+
+test('普通动作提到旧物不翻档，近期原文已有答案也不查旧章', () => {
+  const f = syntheticStory(120);
+  for (const text of ['我把蓝色笔记本放回桌上。','我把它放回桌上。']) {
+    const ctx = run(f,text);
+    assert.deepEqual(ctx.info.retrievalHits,[]);
+    assert.deepEqual(ctx.info.continuity.excerpts,[]);
+  }
+  f.path.at(-1).text += '蓝色笔记本的背面写着 ANSWER-7421';
+  const ctx = run(f,question);
+  assert.deepEqual(ctx.info.retrievalHits,[]);
+  assert.deepEqual(ctx.info.continuity.excerpts,[]);
 });

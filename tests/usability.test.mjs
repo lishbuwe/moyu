@@ -1211,7 +1211,7 @@ test('整理转发断线后重进记忆页接回同一任务，只保存一次',
 
 test('核心栏装不下时，相关关键事实进入最终请求并计入补回数',()=>{
   const facts=Array.from({length:45},(_,i)=>({id:'r'+i,column:'irreversible',type:'fact',event:'旧事'+String(i).padStart(2,'0')+'。'.repeat(115)+'终',sourceFrom:i+1,sourceTo:i+1,irreversible:true,importance:5,tags:i===0?['速写本']:[]}));
-  const path=[{id:'a',role:'assistant',text:'他到了。',checkpoint:{upTo:45,records:facts,cards:{}}},{id:'u',role:'user',text:'拿出速写本。'}];
+  const path=[{id:'a',role:'assistant',text:'他到了。',checkpoint:{upTo:45,records:facts,cards:{}}},{id:'u',role:'user',text:'还记得以前那本速写本吗？'}];
   const ctx=buildContext({cards:[]},path,{budgetChars:6000});
   assert.equal(ctx.info.coreOmitted,45 - ctx.info.coreIncluded);
   assert.equal(ctx.info.coreRecalled,1);
