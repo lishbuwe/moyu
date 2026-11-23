@@ -17,6 +17,18 @@ import { inlineText } from '../inline.js';
 import { openExportDialog } from '../exporter.js';
 import { normalizeUsage, computeCost, fmtMoney, fmtTokens, recordUsage, getMonthSpend, getBudget, hasPrice, priceMode, CUR, getUsageLog } from '../cost.js';
 
+function danmuName(name, colored) {
+  if (!name) return null;
+  const label = el('b', {text:name});
+  if (colored) {
+    let hash = 2166136261;
+    for (const ch of name.trim().normalize('NFC')) hash = Math.imul(hash ^ ch.codePointAt(0),16777619);
+    label.className = 'colored-name';
+    label.style.setProperty('--name-hue', String((hash >>> 0) % 360));
+  }
+  return label;
+}
+
 export async function render(root, { id }) {
   const story = await db.get('stories', id);
   if (!story) { toast('找不到这个故事'); setCurrentStory(null); go(''); return; }
@@ -285,7 +297,7 @@ export async function render(root, { id }) {
       if (story.danmu !== false && p.danmu.length && !picking) {
         const d = el('details', { class: 'danmu' }, el('summary', { text: `弹幕 · ${p.danmu.length}` }));
         if (prefs.danmuOpen) d.open = true;
-        for (const m of p.danmu) d.append(el('div', { class: 'dm' }, m.name ? el('b', { text: m.name }) : null, m.text));
+        for (const m of p.danmu) d.append(el('div', { class: 'dm' }, danmuName(m.name,prefs.danmuNameColors), m.text));
         g.append(d);
       }
       if (isLast && !live && !picking && story.options !== false && p.options.length) {

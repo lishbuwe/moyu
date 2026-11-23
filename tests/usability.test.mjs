@@ -1378,3 +1378,39 @@ test('从故事菜单复制设定重新开局，新故事不带历史节点和�
   assert.equal(copy.protagonist.stateEntries,undefined);
   assert.equal((await db.byStory(copy.id)).length,0);assert.equal((await db.byStory(story.id)).length,2);
 });
+
+test('正文弹幕固定色按网名跨章一致，旧阅读偏好默认关闭',async()=>{
+  const {story,nodes}=await seedStory();
+  const {setPrefs}=await import('../js/state.js');
+  story.danmu=true;story.headId='a2';await db.put('stories',story);
+  nodes[1].text='# 章名\n正文。\n【弹幕】\n雨声：第一句\n晚舟：第二句';
+  await db.putMany('nodes',[nodes[1],{...nodes[0],id:'u2',parentId:'a1'},{...nodes[1],id:'a2',parentId:'u2'}]);
+  let dispose=await play.render(root,{id:story.id});
+  assert.equal(root.querySelectorAll('.colored-name').length,0);
+  dispose();root.replaceChildren();await setPrefs({danmuNameColors:true});
+  try {
+    dispose=await play.render(root,{id:story.id});
+    const hues=[...root.querySelectorAll('.colored-name')].map(n=>n.style.getPropertyValue('--name-hue'));
+    assert.equal(hues.length,4);assert.equal(hues[0],hues[2]);assert.notEqual(hues[0],hues[1]);
+  } finally {dispose();await setPrefs({danmuNameColors:false});}
+});
+
+test('各个昵称色相在当前深浅纸面上对比度至少为4.5',()=>{
+  const css=style.textContent;
+  const luminance=rgb=>rgb.map(c=>c<=0.04045 ? c/12.92 : ((c+0.055)/1.055)**2.4)
+    .reduce((sum,c,i)=>sum+c*[0.2126,0.7152,0.0722][i],0);
+  const colors=[...css.matchAll(/\.colored-name \{ color: hsl\(var\(--name-hue\), (\d+)%, (\d+)%\)/g)];
+  const papers=[...css.matchAll(/--bg: #([a-f0-9]{6});/g)];
+  assert.equal(colors.length,2);
+  for(const [i,color] of colors.entries()){
+    const bg=luminance(papers[i][1].match(/../g).map(x=>parseInt(x,16)/255));
+    const s=Number(color[1])/100,l=Number(color[2])/100;
+    for(let h=0;h<360;h++){
+      const fg=luminance([0,8,4].map(n=>{
+        const k=(n+h/30)%12;
+        return l-s*Math.min(l,1-l)*Math.max(-1,Math.min(k-3,9-k,1));
+      }));
+      assert.ok((Math.max(fg,bg)+0.05)/(Math.min(fg,bg)+0.05)>=4.5);
+    }
+  }
+});

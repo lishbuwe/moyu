@@ -215,6 +215,7 @@ export async function render(root, { section }) {
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '段首缩进'), sw(p.indent, (v) => setPrefs({ indent: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '关键词加粗与强调色'), sw(p.emphasis !== false, (v) => setPrefs({ emphasis: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '台词柔和配色'), sw(p.dialogueColor !== false, (v) => setPrefs({ dialogueColor: v }))),
+      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '按网名固定弹幕颜色'), sw(!!p.danmuNameColors, (v) => setPrefs({danmuNameColors:v}))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '弹幕默认展开'), sw(p.danmuOpen, (v) => setPrefs({ danmuOpen: v })))
     ));
 
