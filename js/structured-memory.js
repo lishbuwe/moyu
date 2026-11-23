@@ -42,6 +42,7 @@ export function projectColumns(mem) {
   if (!Array.isArray(mem?.records)) return fields(mem || {});
   const out = { early: '', earlyUpTo: mem.earlyUpTo || 0, summaries: [], ...Object.fromEntries(LISTS.map((k) => [k, []])) };
   for (const r of activeRecords(mem).sort((a, b) => (a.order || 0) - (b.order || 0))) {
+    if (r.dormant) continue;
     if (r.column === 'early') { out.early = r.event; out.earlyUpTo = r.sourceTo; }
     else if (r.column === 'summaries') out.summaries.push({ from: r.sourceFrom, to: r.sourceTo, text: r.event });
     else if (LISTS.includes(r.column)) out[r.column].push(r.event);
@@ -56,7 +57,7 @@ export function syncStructured(mem, next, { from = mem.upTo, to = mem.upTo, bran
   if (clean(next.early)) desired.push({ column: 'early', text: clean(next.early), from: 1, to: next.earlyUpTo || to });
   for (const s of next.summaries || []) if (clean(s.text)) desired.push({ column: 'summaries', text: clean(s.text), from: s.from, to: s.to });
   for (const column of LISTS) for (const text of next[column] || []) if (clean(text)) desired.push({ column, text: clean(text), from, to });
-  const current = activeRecords(mem);
+  const current = activeRecords(mem).filter(r=>!r.dormant);
   const key = (x) => x.column + '\u0000' + x.event + (['early', 'summaries'].includes(x.column) ? `\u0000${x.sourceFrom}-${x.sourceTo}` : '');
   const wanted = new Map();
   for (const d of desired) {
@@ -102,7 +103,7 @@ export function addEvents(mem, events, from, to, branchId) {
     if (!clean(x?.event)) continue;
     const chapter = Number(x.sourceChapter);
     const at = Number.isInteger(chapter) && chapter >= from && chapter <= to ? chapter : null;
-    for (const r of mem.records) if (x.replaces?.includes?.(r.id) && r.invalidatedAt == null) { r.invalidatedAt = at || to; r.invalidatedBy = 'replacement'; }
+    for (const r of mem.records) if (r.column === 'event' && !r.irreversible && Array.isArray(x.replaces) && x.replaces.includes(r.id) && r.invalidatedAt == null) { r.invalidatedAt = at || to; r.invalidatedBy = 'replacement'; }
     mem.records.push(atom('event', x.event, at || from, at || to, branchId, {
       people: Array.isArray(x.people) ? x.people.map(clean) : [], location: clean(x.location),
       items: Array.isArray(x.items) ? x.items.map(clean) : [], type: clean(x.type) || 'event',

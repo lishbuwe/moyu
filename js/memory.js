@@ -31,7 +31,8 @@ export function pendingChapters(path) {
 function arr(v) { return Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).map((x) => x.trim()).filter(Boolean) : []; }
 function dedupeAppend(a, b) {
   const seen = new Set(a.map((x) => x.trim()));
-  return [...a, ...b.filter((x) => !seen.has(x.trim()))];
+  for (const x of b) seen.add(x.trim());
+  return [...seen];
 }
 
 function parseJson(raw) {
@@ -84,6 +85,8 @@ function recentRows(rows, cap, textOf = String) {
   }).reverse();
 }
 
+const mutableFields = ['items','threads','knowledge','offscreen','repeats'];
+
 export function archivistPrompt(story, prev, batch) {
   const cards = (story.cards || []).filter((c) => c.name?.trim()).map((c) => {
     const s = applyCardState(c, prev);
@@ -98,11 +101,12 @@ export function archivistPrompt(story, prev, batch) {
   const visible = { ...prev, records: undefined, early: (prev.early || '').slice(0, 1800),
     summaries: recentRows(prev.summaries, 1600, row => row.text) };
   for (const field of ['irreversible','corrections','items','threads','knowledge','offscreen','repeats','unsure']) {
-    visible[field] = recentRows(prev[field], 700);
+    visible[field] = mutableFields.includes(field) ? (prev[field] || []).slice(-30) : recentRows(prev[field], 700);
   }
   const prevText = prev.upTo ? memoryText(visible) + (visible.unsure.length ? '\n〔待确认〕\n' + visible.unsure.join('\n') : '') : '（还没有，这是第一次整理）';
   return {
     visible,
+    omitted: ['summaries','irreversible','corrections','unsure',...mutableFields].reduce((n,k)=>n+(prev[k]?.length || 0)-(visible[k]?.length || 0),0),
     system: '你是这部文字互动小说的存档员。把新发生的剧情整理进前情档案：只记正文里确实发生的事，不脑补、不美化、不写感想；拿不准的放进“unsure”。只输出一个 JSON 对象，不要任何说明，也不要代码块标记。',
     user: [
       story.world?.trim() ? '【世界设定】\n' + story.world.trim().slice(0, 4000) : '',
@@ -116,13 +120,14 @@ export function archivistPrompt(story, prev, batch) {
       '【请输出这个 JSON】\n' + JSON.stringify({
         summary: `第${from}–${to}章的剧情摘要，详略随实际变化。影响后续的选择、代价、信息差与关系转折写出前因和后果，必要时留一句原话；仅交代过渡的日常合成一句，平静的一段允许很短。无需逐章复述或凑字数`,
         irreversible: ['这一段新增的不可逆的事：受伤、失去、承诺、人情、关系越线、身份暴露……一条一件；没有就空数组'],
+        changes: [{field:'items/threads/knowledge/offscreen/repeats', old:'需要结束的旧条目，逐字复制', chapter:from, quote:'证明已解决或被替换的本批正文连续原句', next:'替代条目，已解决则空字符串'}],
         items: ['新增或变化的物品、信物、特殊标记：谁给了谁什么、现在在谁手里'],
-        threads: ['更新后的完整列表：未决事项、承诺、暗线、已选但未演绎完的行动，以及玩家明确保留的后续提案。标明发生状态与具体内容，不只记选项字母；未选且未保留的提案不列为待办，已经解决的删掉。资料没有对应内容时放 unsure，不脑补'],
-        knowledge: ['更新后的完整列表：重要的信息差，写成“某事：谁知道／谁不知道（从什么渠道知道）”，尤其写清主角自己知道什么'],
+        threads: ['仅新增的条目，修改或结束已有条目用 changes：未决事项、承诺、暗线、已选但未演绎完的行动，以及玩家明确保留的后续提案。标明发生状态与具体内容，不只记选项字母；未选且未保留的提案不列为待办，已经解决的删掉。资料没有对应内容时放 unsure，不脑补'],
+        knowledge: ['仅新增的条目，修改或结束已有条目用 changes：重要的信息差，写成“某事：谁知道／谁不知道（从什么渠道知道）”，尤其写清主角自己知道什么'],
         memories: [{ event: '本章具体事件或改变的事实，一条一件；无法确定归属章节就留空', sourceChapter: from,
           people: ['涉及的人物'], location: '地点，不确定则空字符串', items: ['物品和别名'], type: '关系/事实/承诺/物品/暗线',
           importance: 7, irreversible: false, knowers: ['逐条列出明确亲历或被告知此事的人名；公开发布且公众能获知的事实加入“公开”。公开场合的私语、内心和幕后动机单独记。无法确定就空数组'], tags: ['称呼、别名和可检索的关键词'], replaces: ['被覆盖的旧记忆 ID；无法确定就空数组'] }],
-        offscreen: ['更新后的完整列表：主角看不见的地方，各角色接下来想做什么、正在做什么（只写正文里有迹可循的）'],
+        offscreen: ['仅新增的条目，修改或结束已有条目用 changes：主角看不见的地方，各角色接下来想做什么、正在做什么（只写正文里有迹可循的）'],
         repeats: ['最近这一段里反复出现、开始变成套路的互动或写法，接下来该避开的；没有就空数组'],
         newCharacters: [{
           name: '这一段新登场、之后还会反复出现的重要角色（尤其是和主角有感情线、或者有明确目的还会再找上门的），而且【角色卡】里还没有；路人、一次性角色不要写；没有就空数组',
@@ -335,17 +340,49 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
       throw e;
     }
     signal?.throwIfAborted();
-    for (const field of ['threads','knowledge','offscreen','repeats']) {
-      if (!Array.isArray(j[field])) continue;
-      const shown = new Set(p.visible[field]);
-      j[field] = [...new Set([...(prev[field] || []).filter(row => !shown.has(row)), ...arr(j[field])])];
+    const closed = new Map();
+    const review = [];
+    for (const change of Array.isArray(j.changes) ? j.changes : []) {
+      if (!change || !mutableFields.includes(change.field) || !p.visible[change.field].includes(change.old)) continue;
+      const chapter = batch.find(c=>c.no === change.chapter);
+      const quote = String(change.quote || '').trim();
+      if (quote.length < 4 || !chapter?.text.includes(quote)) {
+        review.push('待核实的变更：'+change.old);
+        continue;
+      }
+      closed.set(change.field+'\n'+change.old,change);
     }
     let m = merge(prev, j, from, to, story);
+    for (const field of mutableFields) {
+      const retiring = [...closed.values()].filter(c=>c.field === field);
+      if (retiring.length > (prev[field]?.length || 0)*0.3) review.push(...retiring.map(c=>'本批集中更新，请核对：'+c.old+'（依据：'+c.quote+'）'));
+    }
+    m.unsure = dedupeAppend(m.unsure,review);
+    for (const field of mutableFields) {
+      const old = (prev[field] || []).filter(row=>!closed.has(field+'\n'+row));
+      const additions = arr(j[field]).filter(row=>!closed.has(field+'\n'+row));
+      for (const change of closed.values()) if (change.field === field && typeof change.next === 'string' && change.next.trim()) additions.push(change.next.trim());
+      m[field] = dedupeAppend(old,additions);
+    }
     if (story.memoryMode !== 'full') m.continuity = updateContinuity(prev.continuity, j, batch, nodes);
     m = await compressIfLong(m, conn, signal, track, key + '.compress');
     syncStructured(m, m, { from, to, branchId: batch[batch.length - 1].id, metadata: j.memories });
+    for (const field of mutableFields) {
+      const dormant = new Set(m[field].slice(0,-30));
+      for (const r of m.records) {
+        if (r.column !== field) continue;
+        const change = closed.get(field+'\n'+r.event);
+        if (change && r.invalidatedAt === to) r.invalidatedAt = change.chapter;
+        if (r.sourceFrom === from && r.sourceTo === to && r.invalidatedAt == null) {
+          const update = [...closed.values()].find(c=>c.field === field && c.next === r.event);
+          if (update) r.sourceFrom = r.sourceTo = r.sourceChapter = update.chapter;
+        }
+        if (r.invalidatedAt == null && dormant.has(r.event)) r.dormant = true;
+      }
+      m[field] = m[field].slice(-30);
+    }
     addEvents(m, j.memories, from, to, batch[batch.length - 1].id);
-    m.lastRun = { at: Date.now(), from, to, model: conn?.model || '', cost: costSum };
+    m.lastRun = { at: Date.now(), from, to, omitted:p.omitted, model: conn?.model || '', cost: costSum };
     const node = nodes.get(batch[batch.length - 1].id);
     if (!node) throw new Error(`无法保存第 ${to} 章，找不到章节节点`);
     signal?.throwIfAborted();

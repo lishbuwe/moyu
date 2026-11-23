@@ -1278,3 +1278,20 @@ test('有草稿时上下文预览与随后发送的玩家消息一致', async ()
     assert.ok(history.endsWith(requests[0].body.messages.at(-1).content));
   } finally { dispose(); }
 });
+
+test('整理依据章节原句结束旧事项并更新归属，空列表仍保留其他信息差',async()=>{
+  const {story,nodes}=await seedStory();
+  const first={...nodes[1],checkpoint:{upTo:1,threads:['等待回信'],items:['甲持有钥匙'],knowledge:['乙不知道地址'],cards:{}}};
+  const chapter={...first,id:'next',parentId:first.id,text:'回信已经收到。甲将钥匙交给了乙。',checkpoint:undefined};
+  const path=[nodes[0],first,chapter];
+  responses.push(JSON.stringify({summary:'收信并交接钥匙',knowledge:[],changes:[
+    {field:'threads',old:'等待回信',chapter:2,quote:'回信已经收到',next:''},
+    {field:'items',old:'甲持有钥匙',chapter:2,quote:'甲将钥匙交给了乙',next:'乙持有钥匙'},
+    {field:'knowledge',old:'乙不知道地址',chapter:2,quote:'乙看见地址',next:''}
+  ]}));
+  await runArchivist(story,new Map(path.map(n=>[n.id,n])),path,await db.get('connections','qa-conn'));
+  const m=chapter.checkpoint;
+  assert.deepEqual(m.items,['乙持有钥匙']);assert.deepEqual(m.threads,[]);assert.deepEqual(m.knowledge,['乙不知道地址']);
+  assert.equal(m.records.find(r=>r.event==='甲持有钥匙').invalidatedAt,2);
+  assert.ok(m.unsure.some(s=>s.includes('乙不知道地址')));
+});
