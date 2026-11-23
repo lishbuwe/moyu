@@ -319,16 +319,14 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       const sources = [...recentBodies, ...parts.map(p=>p.text)];
       let room = 1200;
       for (const { r, matches } of selection.candidates) {
-        const inscription = /写|落款|题词|原话|留言/u.test(user?.text || '') &&
-          r.event.match(/[「“]([^」”]{3,})[」”]/u)?.[1];
-        if (covered(r.event, sources) || (inscription && !/谁|由谁|保管|收着|归属|哪里/u.test(user?.text || '') && sources.some(body => body.includes(inscription))) ||
+        if (sources.some(text=>text.includes(r.event)) || covered(r.event,recentBodies,cp?.mem.records) ||
             r.event.length + 18 > room) continue;
         layered.records.recalled.push(r);
         room -= r.event.length + 18;
         sources.push(r.event);
-        if (selection.verify && !inscription && !continuity.excerpts.some(e=>e.key)) {
+        if (selection.verify && !continuity.excerpts.some(e=>e.key)) {
           const hit = passageForFact(continuity.chapters,continuity.body,r,matches,recentN,user?.text);
-          if (hit && !covered(hit.quote, sources)) continuity.excerpts.push(hit);
+          if (hit && !sources.some(text=>text.includes(hit.quote)) && !r.event.includes(hit.quote)) continuity.excerpts.push(hit);
         }
         if (layered.records.recalled.length >= 5) break;
       }
@@ -364,6 +362,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     let quoteRoom = Math.min(lean ? 1600 : 3200, remaining);
     const seen = new Set();
     for (const { chapter, quote, detail, pinned, key: passageKey, reason, rounds, fresh } of continuity.excerpts) {
+      if (lean && selection.fastPath && !pinned && !continuity.excerpts.some(hit=>hit.pinned && hit.chapter.id === chapter.id)) continue;
       const key = chapter.id + '\n' + quote;
       if (selected.has(chapter.id) || seen.has(key) || quotes.some((item) =>
         item.chapter === chapter.no && (item.quote.includes(quote) || quote.includes(item.quote)))) continue;

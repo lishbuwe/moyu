@@ -1,6 +1,6 @@
 // 旧正文检索在本机完成。只对当前分支上的正文建立索引。
 const indexes = new WeakMap();
-const stop = new Set('我们 你们 他们 她们 什么 一个 这个 那个 这样 那样 不是 没有 有点 一下 一眼 一会 看着 说道 说着 之后 的时候 自己 继续 我想 他说 她说 以前 之前 当时 当初 记得 后来 客气 毫不 不客气 那把 那张 那件 那次 还在'.split(' '));
+const stop = new Set('我们 你们 他们 她们 什么 一个 这个 那个 这样 那样 不是 没有 有点 一下 一眼 一会 看着 说道 说着 之后 的时候 自己 继续 我想 他说 她说 以前 之前 当时 当初 记得 后来'.split(' '));
 export const HOLD_ROUNDS = 3;
 const MAX_HITS = 3;
 
@@ -39,7 +39,6 @@ function indexChapter(chapter, body) {
 export function recallPassages(chapters, scene, body, { query, context, people, changedScene, recentN, sceneBoundary }) {
   const phrase = query.trim().replace(/^[“「]|[。！？?”」]+$/gu, '');
   const subject = phrase.match(/(?:那|这)(?:把|张|本|件|枚|封|柄|盏|个)([\p{L}\d]{2,12}?)(?=吗|呢|还在|现在|后来|怎么|在哪|[，。！？?]|$)/u)?.[1];
-  const namedTopic = /^[\p{L}\d]{3,10}$/u.test(phrase) && !/[我你他她看着了一眼客气嗯]/u.test(phrase);
   const followup = /它|那时|后来呢|后来怎么样/.test(query);
   if (chapters.length <= recentN || (recentN && !followup &&
       !/以前|之前|上次|那次|当初|还记得|当时|那把|那张|那个|那本|那件|后来|上回/.test(query))) return [];
@@ -63,7 +62,7 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
   }
 
   const direct = terms(query);
-  const exactTopic = subject || (namedTopic ? phrase : null);
+  const exactTopic = subject || (!recentN && /^[\p{L}\d]{2,20}$/u.test(phrase) ? phrase : null);
   if (exactTopic) direct.add(exactTopic);
   const exact = query.normalize('NFKC').toLowerCase().trim().replace(/[。！？?!]+$/u, '');
   const focusedPrefix = /^[\p{Script=Han}]{3,8}$/u.test(exact) ? exact.slice(0, 3) : '';
@@ -97,7 +96,6 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
         specificity.set(exactTopic, 2);
       }
       const directHits = matches.filter((term) => direct.has(term));
-      if (recentN && namedTopic && !subject && !/以前|上次|那次/.test(query) && !chunk.quote.includes(phrase)) continue;
       if (!directHits.some((term) => term.length >= 3 || term === exact || frequency.get(term) / indexed.length <= 0.08) && directHits.length < 2 &&
           !(matches.length >= 3 && matches.some((term) => term.length >= 3))) continue;
       const score = 4 * directHits.reduce((sum, term) => sum + weight(term) * specificity.get(term), 0) +
@@ -129,8 +127,6 @@ export function passageForFact(chapters, body, record, terms, recentN, query = '
         !/(?:仿佛|好像|就像|像在|像是|像.{1,12}一样|比.{1,32}还)/u.test(clause));
       const matched = terms.filter(term => literalClauses.some(clause => clause.includes(term)));
       if (!matched.length) continue;
-      if (/还在.{1,10}那|在谁|谁.{0,3}(收着|留着|保管|持有)/u.test(query) &&
-          !literalClauses.some(clause => /收着|留着|保管|持有|交给|还给|放在/.test(clause))) continue;
       const start = Math.max(0, paragraph.indexOf(matched[0]) - 100);
       const quote = paragraph.slice(start, start + 400);
       // A topic word alone also matches incidental comparisons in unrelated scenes.

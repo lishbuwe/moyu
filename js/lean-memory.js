@@ -18,7 +18,7 @@ function lexicalTerms(text) {
   return [...terms];
 }
 
-export function covered(text, sources) {
+export function covered(text, sources, records = []) {
   const clean = s => s.normalize('NFKC').replace(/[\s\p{P}]/gu,'');
   const key = clean(text);
   if (!key) return true;
@@ -26,9 +26,13 @@ export function covered(text, sources) {
     const source = clean(raw);
     if (source.includes(key)) return true;
     if (key.length < 3) return false;
-    let hits = 0;
-    for (let i=0;i<=key.length-3;i++) if (source.includes(key.slice(i,i+3))) hits++;
-    return hits >= (key.length-2)*0.6;
+    let hits = 0, total = 0;
+    for (let i=0;i<=key.length-3;i++) {
+      const part = key.slice(i,i+3);
+      if (records.length >= 4 && records.filter(r=>r.event.includes(part)).length > records.length*0.3) continue;
+      total++; if (source.includes(part)) hits++;
+    }
+    return total >= 3 && hits === total;
   });
 }
 
@@ -50,34 +54,6 @@ function fit(rows, cap) {
   return {rows:result, omitted:rows.filter(r=>!included.has(r.event.normalize('NFKC').trim())).length};
 }
 const render = rows => rows.map(r=>'- [第'+r.sourceFrom+'–'+r.sourceTo+'章] '+r.event).join('\n');
-
-// A repeated inscription is a strong anchor across overlapping chapter summaries.
-// Prefer the complete quotation, including a signature, for wording questions.
-function wordingCandidates(hits, query) {
-  const asksHolder = /还在.{1,10}那|谁.{0,3}(收着|留着|保管|持有)|在谁/.test(query);
-  if (!asksHolder && !/写|原话|落款|留言|题词/.test(query)) return hits;
-  const holders = [];
-  const selected = [];
-  const quotations = [];
-  for (const hit of hits) {
-    const quotes = [...hit.r.event.matchAll(/[「“]([^」”]+)[」”]/gu)];
-    const words = quotes.length === 1 && quotes[0][1].replace(/[\s\p{P}]/gu, '');
-    const holder = asksHolder && hit.r.event.match(/(?:由|[，。；])([\p{Script=Han}]{2,4}?)(?:收着|留着|保管|持有)/u)?.[1];
-    const index = words && words.length >= 5 ? quotations.findIndex((other, i) =>
-      other && (!asksHolder || (holder && holders[i] && (holder.endsWith(holders[i]) || holders[i].endsWith(holder)))) && (other.startsWith(words) || words.startsWith(other)) &&
-      selected[i].matches.some(term => hit.matches.includes(term))) : -1;
-    if (index < 0) {
-      selected.push(hit);
-      quotations.push(words);
-      holders.push(holder);
-    } else if (words.length > quotations[index].length) {
-      selected[index] = hit;
-      quotations[index] = words;
-      holders[index] = holder;
-    }
-  }
-  return selected;
-}
 
 export function leanMemory(mem, query, director, lastBody, aliases, present, coreBudget = 1800) {
   const all = activeRecords(mem).filter(r=>typeof r.event === 'string' && r.event.trim());
@@ -115,7 +91,7 @@ export function leanMemory(mem, query, director, lastBody, aliases, present, cor
   // 只有明确描述当前归属的短项可以常驻，带历史或引文的混合记录留待检索。
   const sceneTerms = [...new Set([...lexicalTerms(lastBody.slice(-300)), ...lexicalTerms(query)])]
     .filter(term => term.length >= 2 && !present.includes(term) && !aliases.includes(term) && !edge.test(term));
-  const state=fit(all.filter(r => sceneTerms.some(term => r.event.includes(term))).filter(r=>r.type==='thread' || (r.type==='item' && /^[^。！？：“”\n]{1,28}(?:现由|目前由)[^。！？：“”\n]{1,16}(?:保管|持有)[。]?$/u.test(r.event))).sort((a,b)=>b.sourceTo-a.sourceTo),900).rows;
+  const state=fit(all.filter(r => sceneTerms.some(term => r.event.includes(term))).filter(r=>r.type==='thread').sort((a,b)=>b.sourceTo-a.sourceTo),900).rows;
   const hits=[];
   for (const r of all) {
     if (fastPath || core.some(sent => sent.id === r.id && sent.event === r.event) || state.some(sent=>sent.id === r.id && sent.event === r.event)) continue;
@@ -126,5 +102,5 @@ export function leanMemory(mem, query, director, lastBody, aliases, present, cor
   }
   hits.sort((a,b)=>b.score-a.score||(b.r.importance||0)-(a.r.importance||0)||b.r.sourceTo-a.r.sourceTo);
   return {core:render(core),state:render(state),hits:[],coreOmitted:facts.omitted + knowledge.omitted,records:{core,state,recalled:[]},
-    candidates:verify ? wordingCandidates(hits, query) : hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
+    candidates:hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
 }
