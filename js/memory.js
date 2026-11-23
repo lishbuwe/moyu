@@ -84,15 +84,27 @@ export function archivistPrompt(story, prev, batch) {
   for (const field of ['irreversible','corrections','items','threads','knowledge','offscreen','repeats','unsure']) {
     visible[field] = mutableFields.includes(field) ? (prev[field] || []).slice(-30) : recentRows(prev[field], 700);
   }
+  const briefCandidates = (prev.records || []).filter(r => r.invalidatedAt == null &&
+    (r.irreversible || r.type === 'correction' || r.type === 'knowledge') &&
+    typeof r.event === 'string' && r.event.length > 40 && !r.brief && !r.briefChecked);
+  const briefTargets = [];
+  let remaining = 1200;
+  for (const r of briefCandidates) {
+    if (r.event.length > remaining) continue;
+    briefTargets.push({id:r.id,event:r.event});
+    remaining -= r.event.length;
+    if (briefTargets.length === 4) break;
+  }
   const prevText = prev.upTo ? memoryText(visible) + (visible.unsure.length ? '\n〔待确认〕\n' + visible.unsure.join('\n') : '') : '（还没有，这是第一次整理）';
   return {
-    visible,
+    visible, briefTargets,
     omitted: ['summaries','irreversible','corrections','unsure',...mutableFields].reduce((n,k)=>n+(prev[k]?.length || 0)-(visible[k]?.length || 0),0),
     system: '你是这部文字互动小说的存档员。把新发生的剧情整理进前情档案：只记正文里确实发生的事，不脑补、不美化、不写感想；拿不准的放进“unsure”。只输出一个 JSON 对象，不要任何说明，也不要代码块标记。',
     user: [
       story.world?.trim() ? '【世界设定】\n' + story.world.trim().slice(0, 4000) : '',
       protagonistText(story),
       cards ? '【角色卡（初始设定、原话、禁止清单这些不归你改；你只负责“当前状态”“变化轨迹”“关系档案”）】\n' + cards : '【角色卡】\n（还没有任何角色卡）',
+      briefTargets.length ? '【补写旧核心事实简版】只处理下列 ID。保留否定、归属、时序与知情边界，40字内不能准确表达就留空。\n'+JSON.stringify(briefTargets) : '',
       '【已有的前情档案】\n' + prevText,
       prev.records?.length ? '【近期可覆盖的结构化记忆 ID】\n' + prev.records.filter((x) => x.column === 'event' && !x.irreversible && x.invalidatedAt == null).slice(-80)
         .map((x) => `${x.id}｜第${x.sourceFrom}${x.sourceTo !== x.sourceFrom ? '–' + x.sourceTo : ''}章｜${x.event.slice(0, 130)}`).join('\n') : '',
@@ -101,6 +113,7 @@ export function archivistPrompt(story, prev, batch) {
       '【请输出这个 JSON】\n' + JSON.stringify({
         summary: `第${from}–${to}章的剧情摘要，详略随实际变化。影响后续的选择、代价、信息差与关系转折写出前因和后果，必要时留一句原话；仅交代过渡的日常合成一句，平静的一段允许很短。无需逐章复述或凑字数`,
         irreversible: ['这一段新增的不可逆的事：受伤、失去、承诺、人情、关系越线、身份暴露……一条一件；没有就空数组'],
+        ...(briefTargets.length ? {briefUpdates:[{id:'上述旧事实 ID',brief:'准确简版或空字符串'}]} : {}),
         changes: [{field:'items/threads/knowledge/offscreen/repeats', old:'需要结束的旧条目，逐字复制', chapter:from, quote:'证明已解决或被替换的本批正文连续原句', next:'替代条目，已解决则空字符串'}],
         items: ['新增或变化的物品、信物、特殊标记：谁给了谁什么、现在在谁手里'],
         threads: ['仅新增的条目，修改或结束已有条目用 changes：未决事项、承诺、暗线、已选但未演绎完的行动，以及玩家明确保留的后续提案。标明发生状态与具体内容，不只记选项字母；未选且未保留的提案不列为待办，已经解决的删掉。资料没有对应内容时放 unsure，不脑补'],
@@ -375,6 +388,12 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
         if (r.invalidatedAt == null && dormant.has(r.event)) r.dormant = true;
       }
       m[field] = m[field].slice(-30);
+    }
+    for (const update of Array.isArray(j.briefUpdates) ? j.briefUpdates : []) {
+      const target = p.briefTargets.find(t=>t.id === update?.id);
+      if (!target || typeof update.brief !== 'string' || update.brief.length > 40) continue;
+      const record = m.records.find(r=>r.id === target.id && r.event === target.event && r.invalidatedAt == null);
+      if (record) { record.brief = update.brief.trim(); record.briefChecked = true; }
     }
     addEvents(m, j.memories, from, to, batch[batch.length - 1].id);
     m.lastRun = { at: Date.now(), from, to, omitted:p.omitted, model: conn?.model || '', cost: costSum };

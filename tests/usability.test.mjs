@@ -1329,3 +1329,17 @@ test('跨页面分别改标题和规则可以连续保存',async()=>{
   const fresh=await db.get('stories',story.id);
   assert.equal(fresh.title,a.title);assert.equal(fresh.rules,b.rules);
 });
+
+test('整理时补写旧核心简版，旧正文与历史节点保真',async()=>{
+  const {story,nodes}=await seedStory();
+  const event='原协议仍然有效，只有收到双方签名的纸质回执，保管人才可以解除封存。单方签字或口头承诺均不生效。';
+  const rec={id:'core-old',event,column:'irreversible',irreversible:true,sourceFrom:1,sourceTo:1};
+  const first={...nodes[1],checkpoint:{schema:1,upTo:1,records:[rec],irreversible:[event],cards:{}}};
+  const next={...nodes[1],id:'brief-next',parentId:first.id,text:'夜色渐深。'};
+  const path=[nodes[0],first,next],brief='仅双方签署纸质回执后保管人可解封，单签或口头无效。';
+  responses.push(JSON.stringify({summary:'入夜',briefUpdates:[{id:rec.id,brief}]}));
+  await runArchivist(story,new Map(path.map(n=>[n.id,n])),path,await db.get('connections','qa-conn'));
+  assert.equal(rec.brief,undefined);
+  const updated=next.checkpoint.records.find(r=>r.id===rec.id);
+  assert.equal(updated.brief,brief);assert.equal(updated.event,event);
+});
