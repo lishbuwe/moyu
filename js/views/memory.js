@@ -64,12 +64,9 @@ export async function render(root, { id }) {
     const connSel = el('select', { onchange: () => { story.memConnId = connSel.value || null; saveStory(); } });
     const mode = el('input', { type: 'checkbox' }); mode.checked = story.memoryMode === 'full';
     mode.addEventListener('change', () => { story.memoryMode = mode.checked ? 'full' : 'layered'; saveStory(); toast(mode.checked ? '已切回整包档案' : '已启用分层记忆'); });
-    const plan = el('input', {type:'checkbox'});
-    plan.checked = story.memoryPlan === 'lean';
-    plan.addEventListener('change', async () => { story.memoryPlan = plan.checked ? 'lean' : ''; await saveStory(); draw(); });
-    const recent = el('input', { type: 'number', min: '2', max: plan.checked ? '6' : '4', step: '1', style: { width: '90px', flex: 'none' } });
+    const recent = el('input', { type: 'number', min: '2', max: '6', step: '1', style: { width: '90px', flex: 'none' } });
     recent.value = String(story.recentChapters || 2);
-    recent.addEventListener('change', () => { story.recentChapters = Math.max(2, Math.min(plan.checked ? 6 : 4, Number(recent.value) || 2)); recent.value = String(story.recentChapters); saveStory(); });
+    recent.addEventListener('change', () => { story.recentChapters = Math.max(2, Math.min(6, Number(recent.value) || 2)); recent.value = String(story.recentChapters); saveStory(); });
     connSel.append(el('option', { value: '' }, '跟随故事的连接'));
     conns.forEach((c) => connSel.append(el('option', { value: c.id }, `${connLabel(c)}（${c.model}）`)));
     connSel.value = story.memConnId || '';
@@ -105,7 +102,6 @@ export async function render(root, { id }) {
       el('details', {class:'card'}, el('summary',{text:'整理设置与更多操作'}),
         el('div',{class:'switch-row'}, el('label',{text:'自动整理间隔（章，0 为关闭）'}),every),
         el('div',{class:'field'}, el('label',{text:'整理用的连接'}),connSel),
-        el('label',{class:'switch-row'},'精简正文记忆（分层模式）',plan),
         el('div',{class:'switch-row'},el('label',{text:'最近保留几章原文'}),recent),
         el('div',{class:'switch-row'},el('label',{text:'使用旧整包档案模式'}),mode),redoBtn));
     if (running) status.textContent = running.text;

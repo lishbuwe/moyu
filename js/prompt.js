@@ -1,5 +1,5 @@
 import { leanMemory, covered } from './lean-memory.js';
-import { passageForFact } from './recall.js';
+import { passageForFact, recallPassages } from './recall.js';
 // 墨游 · 每轮重新拼装发给模型的内容
 // 顺序：固定规则、设定、常驻角色卡、前情档案 → 动态模块和角色 → 对话原文。
 
@@ -211,7 +211,7 @@ export function inputBudgetChars(conn) {
 }
 
 export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '', continuationMessages = [] } = {}) {
-  const lean = story.memoryPlan === 'lean' && story.memoryMode !== 'full';
+  const lean = story.memoryMode !== 'full';
   let { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
   if (cp) cp.mem = editionMemory(cp.mem, activeEdition(path));
@@ -232,7 +232,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };
   function promptCard(c) {
     const state=applyCardState(c,cp?.mem);
-    if (lean && !present.includes(c)) return [c.name,(state.brief || state.now || '').split(/[。！？\n]/)[0].slice(0,60)].filter(Boolean).join(' · ');
+    if (lean && !present.includes(c)) return ['【角色卡·' + c.name + '】',(state.brief || state.now || state.base || '').split(/[。！？\n]/)[0].slice(0,60)].filter(Boolean).join(' · ');
     return cardText(state,lean ? {arcLimit:700,voiceLimit:2} : {});
   }
   add('开头', '你正在主持一场文字互动小说。', 'base');
@@ -324,6 +324,13 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
         }
         if (layered.records.recalled.length >= 5) break;
       }
+    }
+    if (compact && !layered.records.recalled.length && path.at(-1)?.kind !== 'ooc' &&
+        selection.verify && !continuity.excerpts.some(hit => hit.key)) {
+      continuity.excerpts.push(...recallPassages(continuity.chapters, continuity.scene, continuity.body, {
+        query: user?.text || '', people: (story.cards || []).flatMap(splitNames), recentN,
+        changedScene: true,
+      }));
     }
     takeFacts(true);
     const sceneIds = new Set(continuity.scene.map((c) => c.id));

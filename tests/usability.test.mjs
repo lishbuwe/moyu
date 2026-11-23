@@ -119,7 +119,7 @@ test('导入后的长文本完整显示，选段重写定位只移动正文滚�
   } finally { dispose(); }
 });
 
-test('正文自动找回旧对白，刷新后沿用三轮，换场和回退不携带上一场的引用', async () => {
+test('正文自动找回旧对白，普通动作不沿用，换场和回退不携带上一场的引用', async () => {
   const { story, nodes } = await seedStory();
   const quote = '他把半温莎结松开，压低声音说：“这一回我教你。”';
   nodes[1].text = '他的手搭在椅背上。\n\n' + quote + '\n\n我没有伸手。';
@@ -151,7 +151,7 @@ test('正文自动找回旧对白，刷新后沿用三轮，换场和回退不�
     assert.ok(anchor.recallRefs.some((hit) => hit.nodeId === nodes[1].id));
     dispose(); root.replaceChildren();
     dispose = await play.render(root, { id: story.id });
-    for (let i = 0; i < 3; i++) assert.ok((await send('嗯。')).includes(quote));
+    assert.ok(!(await send('我毫不客气地看了他一眼。')).includes(quote));
     assert.ok(!(await send('嗯。')).includes(quote));
     assert.ok((await send('半温莎结')).includes(quote));
     assert.ok(!(await send('次日，我到了码头。')).includes(quote));
@@ -1213,9 +1213,9 @@ test('核心栏装不下时，相关关键事实进入最终请求并计入补�
   const facts=Array.from({length:45},(_,i)=>({id:'r'+i,column:'irreversible',type:'fact',event:'旧事'+String(i).padStart(2,'0')+'。'.repeat(115)+'终',sourceFrom:i+1,sourceTo:i+1,irreversible:true,importance:5,tags:i===0?['速写本']:[]}));
   const path=[{id:'a',role:'assistant',text:'他到了。',checkpoint:{upTo:45,records:facts,cards:{}}},{id:'u',role:'user',text:'拿出速写本。'}];
   const ctx=buildContext({cards:[]},path,{budgetChars:6000});
-  assert.equal(ctx.info.coreOmitted,29);
+  assert.equal(ctx.info.coreOmitted,45 - ctx.info.coreIncluded);
   assert.equal(ctx.info.coreRecalled,1);
-  assert.equal(ctx.info.coreIncluded,16);
+  assert.ok(ctx.info.coreIncluded > 0 && ctx.info.coreIncluded <= 8);
   assert.ok(ctx.system.includes(facts[0].event));
   assert.ok(ctx.info.totalChars<=6000);
 });

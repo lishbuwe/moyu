@@ -1,21 +1,14 @@
 // 旧正文检索在本机完成。只对当前分支上的正文建立索引。
 const indexes = new WeakMap();
-const stop = new Set('我们 你们 他们 她们 什么 一个 这个 那个 这样 那样 不是 没有 有点 一下 一眼 一会 看着 说道 说着 之后 的时候 自己 继续 我想 他说 她说'.split(' '));
+const stop = new Set('我们 你们 他们 她们 什么 一个 这个 那个 这样 那样 不是 没有 有点 一下 一眼 一会 看着 说道 说着 之后 的时候 自己 继续 我想 他说 她说 以前 之前 当时 当初 记得 后来 客气 毫不 不客气 那把 那张 那件 那次 还在'.split(' '));
 export const HOLD_ROUNDS = 3;
 const MAX_HITS = 3;
 
+const segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh', {granularity:'word'}) : null;
 function terms(text) {
-  const found = new Set();
-  for (const word of text.normalize('NFKC').toLowerCase().match(/[\p{Script=Han}]+|[a-z0-9]{2,}/gu) || []) {
-    if (!/^\p{Script=Han}/u.test(word)) { found.add(word); continue; }
-    for (let i = 0; i < word.length - 1; i++) {
-      for (const length of [2, 3]) {
-        const term = word.slice(i, i + length);
-        if (term.length === length && !stop.has(term) && !/^的|的$/u.test(term)) found.add(term);
-      }
-    }
-  }
-  return found;
+  const words = text.normalize('NFKC').toLowerCase();
+  const tokens = segmenter ? Array.from(segmenter.segment(words), part => part.segment) : words.match(/[\p{L}\d]+/gu) || [];
+  return new Set(tokens.filter(word => word.length >= 2 && !stop.has(word) && /[\p{L}\d]/u.test(word)));
 }
 
 function indexChapter(chapter, body) {
@@ -44,12 +37,17 @@ function indexChapter(chapter, body) {
 }
 
 export function recallPassages(chapters, scene, body, { query, context, people, changedScene, recentN, sceneBoundary }) {
-  if (chapters.length <= recentN) return [];
+  const phrase = query.trim().replace(/^[“「]|[。！？?”」]+$/gu, '');
+  const subject = phrase.match(/(?:那|这)(?:把|张|本|件|枚|封|柄|盏|个)([\p{L}\d]{2,12}?)(?=吗|呢|还在|现在|后来|怎么|在哪|[，。！？?]|$)/u)?.[1];
+  const namedTopic = /^[\p{L}\d]{3,10}$/u.test(phrase) && !/[我你他她看着了一眼客气嗯]/u.test(phrase);
+  const followup = /它|那时|后来呢|后来怎么样/.test(query);
+  if (chapters.length <= recentN || (recentN && !namedTopic && !followup &&
+      !/以前|之前|上次|那次|当初|还记得|当时|那把|那张|那个|那本|那件|后来|上回/.test(query))) return [];
   const older = recentN ? chapters.slice(0, -recentN) : chapters;
   const sources = new Map(older.map((chapter) => [chapter.id, chapter]));
   const active = new Map();
   const lastNo = chapters.at(-1).no;
-  if (!changedScene) {
+  if (!changedScene && followup) {
     for (const anchor of scene.slice(-HOLD_ROUNDS).reverse()) {
       if (anchor === sceneBoundary && !anchor.userStartedScene) break;
       const rounds = HOLD_ROUNDS - (lastNo - anchor.no);
@@ -65,14 +63,15 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
   }
 
   const direct = terms(query);
+  const exactTopic = subject || (namedTopic ? phrase : null);
+  if (exactTopic) direct.add(exactTopic);
   const exact = query.normalize('NFKC').toLowerCase().trim().replace(/[。！？?!]+$/u, '');
   const focusedPrefix = /^[\p{Script=Han}]{3,8}$/u.test(exact) ? exact.slice(0, 3) : '';
-  const contextTerms = terms(context);
+  
   // 人名可帮助排序，但单独命中人名不能把一堆无关往事拉回来。
   const nameTerms = new Set(people.flatMap((name) => [...terms(name)]));
   for (const term of nameTerms) direct.delete(term);
-  for (const term of nameTerms) contextTerms.delete(term);
-  const candidateTerms = [...new Set([...direct, ...contextTerms])];
+  const candidateTerms = [...direct];
   if (!candidateTerms.length) return [...active.values()].slice(0, MAX_HITS);
 
   const indexed = older.map((chapter) => ({ chapter, chunks: indexChapter(chapter, body) }));
@@ -93,12 +92,16 @@ export function recallPassages(chapters, scene, body, { query, context, people, 
     let best;
     for (const chunk of chunks) {
       const matches = rare.filter((term) => chunk.terms.has(term));
+      if (exactTopic && direct.has(exactTopic) && !people.includes(exactTopic) && chunk.quote.includes(exactTopic) && !matches.includes(exactTopic)) {
+        matches.push(exactTopic);
+        specificity.set(exactTopic, 2);
+      }
       const directHits = matches.filter((term) => direct.has(term));
+      if (recentN && namedTopic && !subject && !/以前|上次|那次/.test(query) && !chunk.quote.includes(phrase)) continue;
       if (!directHits.some((term) => term.length >= 3 || term === exact || frequency.get(term) / indexed.length <= 0.08) && directHits.length < 2 &&
           !(matches.length >= 3 && matches.some((term) => term.length >= 3))) continue;
       const score = 4 * directHits.reduce((sum, term) => sum + weight(term) * specificity.get(term), 0) +
         (directHits.includes(focusedPrefix) ? 200 : 0) +
-        Math.min(12, matches.filter((term) => !direct.has(term)).reduce((sum, term) => sum + weight(term), 0)) +
         Math.min(2, [...nameTerms].filter((term) => chunk.terms.has(term)).length);
       if (!best || score > best.score) {
         const reason = (directHits.length ? directHits : matches).sort((a, b) => weight(b) - weight(a)).slice(0, 5).join('、');

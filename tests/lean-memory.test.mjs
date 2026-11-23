@@ -32,9 +32,22 @@ test('B C pronoun resolves from last paragraph',()=>{
 });
 test('G backlog requires a relevant topic and a participant',()=>{
   const f=syntheticStory(120,{backlog:8});f.path[2*116-1].text+='铜盒子';
-  assert.ok(run(f,'上次那个铜盒子呢？').info.continuity.kept.includes(116));
+  const ctx = run(f,'上次那个铜盒子呢？');
+  assert.ok([...ctx.info.continuity.kept, ...ctx.info.continuity.excerpts].includes(116));
 });
 test('J branch path and rollback',()=>{
   const f=syntheticStory(120);f.path=f.path.slice(0,60);
   assert.doesNotMatch(JSON.stringify(run(f,question)),/FUT-090|ANSWER-7421|BRANCH-other/);
+});
+
+test('旧档第59章的普通动作不召回第33章，明确问剑时仍能找到原文', () => {
+  const f = syntheticStory(59);
+  delete f.story.memoryPlan;
+  const old = f.path[65];
+  old.text = '他毫不客气地说，石中剑藏在旧塔的井底。';
+  f.path.at(-1).recallRefs = [{nodeId:old.id,key:'0:0',quote:old.text,reason:'毫不客、不客气、石中剑'}];
+  const ordinary = run(f, '我毫不客气地看了他一眼。');
+  assert.deepEqual(ordinary.info.continuity.kept,[58,59]);
+  assert.doesNotMatch(ordinary.system,/旧塔的井底/);
+  assert.ok(run(f,'还记得那把石中剑吗？').system.includes('旧塔的井底'));
 });

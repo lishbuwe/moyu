@@ -62,7 +62,7 @@ export function updateContinuity(previous, result, batch, nodes) {
 const transition = /^(?:[（(【「“\s]*)(?:次日|翌日|隔天|第二天|与此同时|同一时间|另一边|镜头转到|转场|\d+[天周个月年]+后|[两三四五六七八九十几]+[天周个月年]+后)(?:[，。；：！、\s]|一早|清晨|上午|中午|下午|傍晚|晚上|[）)】」”]|$)/u;
 
 export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, extra = '' } = {}) {
-  const lean = story.memoryPlan === 'lean' && story.memoryMode !== 'full';
+  const lean = story.memoryMode !== 'full';
   const chapters = [];
   for (let index = 0; index < path.length; index++) {
     const node = path[index];
@@ -91,11 +91,12 @@ export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, 
         break;
       }
       // 只检查可能放进一次请求的近期原文，避免每轮解析整部小说。
-      if (chapters.length - sceneAt >= (lean ? recentN : 30)) break;
+      if (chapters.length - sceneAt >= 15) break;
     }
   }
-  const scene = chapters.slice(sceneAt);
-  const current = [latestUser?.text, latestUser?.director, ...scene.flatMap((c) => [c.user?.text, body(c)])].filter(Boolean).join('\n');
+  const visibleScene = chapters.slice(sceneAt);
+  const scene = visibleScene.slice(-recentN);
+  const current = [latestUser?.text, latestUser?.director, ...visibleScene.flatMap((c) => [c.user?.text, body(c)])].filter(Boolean).join('\n');
   const byId = chapterIndex(chapters);
   const aliases = new Map((story.cards || []).map((card) => [card.name, namesOf(card)]));
   const protagonist = story.protagonist?.name;
@@ -107,16 +108,16 @@ export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, 
   for (const chapter of chapters) for (const quote of Array.isArray(chapter.node.continuityPins) ? chapter.node.continuityPins : []) {
     if (quoteIn(body(chapter), quote)) excerpts.push({ chapter, quote, pinned: true });
   }
-  for (const line of lean ? [] : archive?.lines || []) {
+  for (const line of (archive?.lines || []).slice(-3)) {
     if (!line.people?.some(present)) continue;
     const refs = line.refs || [];
-    if (!refs.length || !refs.every((ref) => quoteIn(body(byId.get(ref.nodeId)), ref.quote))) continue;
+    if (chapters.length - (byId.get(refs.at(-1)?.nodeId)?.no ?? -Infinity) >= 15 || !refs.length || !refs.every((ref) => quoteIn(body(byId.get(ref.nodeId)), ref.quote))) continue;
     for (const [index, ref] of refs.entries()) {
       excerpts.push({ chapter: byId.get(ref.nodeId), quote: ref.quote, detail: index === refs.length - 1 ? line.detail : '' });
     }
   }
   excerpts.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.chapter.no - a.chapter.no);
-  const automatic = lean || path.at(-1)?.kind === 'ooc' ? [] : recallPassages(chapters, scene, body, {
+  const automatic = checkpoint?.mem?.records?.length || path.at(-1)?.kind === 'ooc' ? [] : recallPassages(chapters, scene, body, {
     query: [latestUser?.text, latestUser?.director, extra].filter(Boolean).join('\n').slice(0, 500),
     context: scene.slice(-2).map((c) => body(c).slice(-260)).join('\n'),
     people: [...aliases.values()].flat().concat(protagonist || ''),

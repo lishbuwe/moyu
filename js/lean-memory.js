@@ -12,7 +12,7 @@ function lexicalTerms(text) {
   for (const group of groups) {
     const words = segmenter ? [...segmenter.segment(group)].map(s=>s.segment) : [group];
     for (let i=0;i<words.length;i++) for (const term of [words[i],words.slice(i,i+2).join(''),group]) {
-      if (term.length >= 3 && !edge.test(term)) terms.add(term);
+      if (term.length >= 2 && !edge.test(term)) terms.add(term);
     }
   }
   return [...terms];
@@ -87,12 +87,14 @@ export function leanMemory(mem, query, director, lastBody, aliases, present) {
   }
   const intent=past.test(query) || (pointer.test(query) && question.test(query));
   const verify=question.test(query) && (intent || terms.some(t=>items.has(t)));
-  const fastPath=!director && !intent && !terms.length;
+  
   const topicTerms = lexicalTerms(query);
-  if (!terms.length && intent) terms=topicTerms.filter(t=>{
+  if (!intent && !director) terms = terms.filter(term => !aliases.includes(term));
+  const fastPath = !director && !intent && !terms.length;
+  if (intent) terms = [...new Set([...terms, ...topicTerms.filter(t=>{
     const n=all.filter(r=>r.event.includes(t)).length;
-    return n>0 && n<=all.length*0.15;
-  });
+    return n>0 && n<=Math.max(1,all.length*0.15);
+  })])];
   const ranked=[...all].sort((a,b)=>(b.importance||0)-(a.importance||0)||b.sourceTo-a.sourceTo);
   const core=fit(ranked.filter(r=>r.type!=='knowledge' && (r.irreversible || r.type==='correction')),600,8);
   const knowledge=fit(ranked.filter(r=>r.type==='knowledge' && [...r.people||[],...r.knowers||[]].some(n=>present.includes(n))),600);
@@ -108,6 +110,6 @@ export function leanMemory(mem, query, director, lastBody, aliases, present) {
     if (matches.length) hits.push({r,matches,score:matches.reduce((s,t)=>s+t.length,0)});
   }
   hits.sort((a,b)=>b.score-a.score||(b.r.importance||0)-(a.r.importance||0)||b.r.sourceTo-a.r.sourceTo);
-  return {core:render(core),state:render(state),hits:[],coreOmitted:0,records:{core,state,recalled:[]},
+  return {core:render(core),state:render(state),hits:[],coreOmitted:ranked.filter(r => (r.irreversible || r.type === 'correction') && !core.includes(r)).length,records:{core,state,recalled:[]},
     candidates:verify ? wordingCandidates(hits, query) : hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
 }

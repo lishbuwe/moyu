@@ -75,8 +75,8 @@ test('百章档案按预算保留未整理原文，提到停电与本子时仍�
   assert.equal(compact.info.memoryMode, 'layered');
   assert.ok(compact.info.totalChars <= 15000);
   assert.ok(compact.system.includes('停电') && compact.system.includes('速写本'));
-  assert.deepEqual(compact.info.continuity.kept, [91,92,93,94,95,96,97,98,99,100]);
-  assert.equal(compact.messages.filter(m => m.role === 'assistant').length, 6);
+  assert.deepEqual(compact.info.continuity.kept, [99,100]);
+  assert.equal(compact.messages.filter(m => m.role === 'assistant').length, 2);
   assert.ok(compact.system.includes('借着手电筒画完了最后一页'));
   assert.ok(compact.info.retrievalHits.some(hit => hit.from === 9));
 });
@@ -106,7 +106,7 @@ test('跨十二章接回试探原句，沿用当前场景，回退和改写后�
   const result = buildContext(story, [...path, next], { budgetChars: 6000 });
   assert.ok(result.system.includes(line));
   assert.ok(result.system.includes(reply));
-  assert.deepEqual(result.info.continuity.kept, [12,13,14]);
+  assert.deepEqual(result.info.continuity.kept, [13,14]);
   assert.deepEqual(result.info.continuity.excerpts, [2]);
   assert.equal(result.messages.at(-1).content, next.text);
   assert.ok(result.info.totalChars <= 6000);
