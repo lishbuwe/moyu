@@ -226,7 +226,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     sentCards = (story.cards || []).filter(c=>c.core || present.includes(c));
   }
   const selection = lean ? leanMemory(cp?.mem, [user?.text,director].filter(Boolean).join(' '), director,
-    recentBodies.at(-1) || '', (story.cards || []).flatMap(splitNames), [...present.map(c=>c.name),story.protagonist?.name].filter(Boolean)) : null;
+    recentBodies.at(-1) || '', (story.cards || []).flatMap(splitNames), [...present.flatMap(splitNames),story.protagonist?.name].filter(Boolean), Math.min(1800,Math.floor(budgetChars/6))) : null;
   const layered = compact ? selection || layeredMemory(cp.mem, scanText(path, extra), { requireMatch: true, prioritizeCore: true }) : null;
   const parts = [];
   const add = (label, text, kind) => { if (text?.trim()) parts.push({ label, text: text.trim(), kind }); };

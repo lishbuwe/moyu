@@ -82,3 +82,13 @@ test('没有结构化记录时，普通短动作也不引用同词旧章', () =>
   f.path[65].text = '推开房门。旧塔突然坍塌。';
   assert.deepEqual(run(f,'推开房门。').info.continuity.excerpts,[]);
 });
+
+test('重复句尾不会吞掉不同事实，缺失知情者的限制保留给正文 GM', () => {
+  const f=syntheticStory(60);
+  const records=Array.from({length:16},(_,i)=>({id:'f'+i, type:'fact', irreversible:true,sourceFrom:1,sourceTo:30,event:'事件编号'+i+'，这件事已无法挽回，今后不得忘记。'}));
+  records.push(...Array.from({length:8},(_,i)=>({id:'k'+i,type:'knowledge',sourceFrom:2,sourceTo:30,event:'秘密编号'+i+'尚未公开。',people:i<4?[]:['陆青']})));
+  f.path.at(-1).checkpoint.records=records;
+  const c=run(f,action);
+  for(const r of records) assert.ok(c.system.includes(r.event));
+  assert.equal(c.info.coreOmitted,0);
+});

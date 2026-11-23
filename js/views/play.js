@@ -136,6 +136,7 @@ export async function render(root, { id }) {
     sendBtn.textContent = busy ? '停止' : (started ? '发送' : '开始');
     sendBtn.classList.toggle('stop', busy);
     statusRow.replaceChildren(...[
+      st.lastCtxNodeId === story.headId && st.lastCtx?.info.coreOmitted ? el('div', {class:'status',text:'上轮核心记忆有 '+st.lastCtx.info.coreOmitted+' 条未带入'}) : null,
       st.ooc ? el('div', { class: 'status ooc' },
         el('span', { class: 'lbl', text: '出戏：这一句是场外话，不推进剧情' }),
         el('button', { 'aria-label': '关掉出戏', onclick: () => { st.ooc = false; updateComposer(); } }, '✕')) : null,
@@ -1192,6 +1193,7 @@ export async function render(root, { id }) {
       el('div', { class: 'hint', style: { marginTop: 0, marginBottom: '10px' } },
         `共约 ${i.totalChars.toLocaleString()} 字（粗估约 ${approxTokens(i.totalChars).toLocaleString()} token），输入预算 ${i.budgetChars.toLocaleString()} 字，${i.count} 条消息。` +
         (i.memoryPlan === 'lean' ? '精简方案。' + (i.fastPath ? '本轮无需检索。' : '') : '常规方案。') +
+        (i.coreOmitted ? '核心记忆有 '+i.coreOmitted+' 条未带入。' : '') +
         (i.trimmed ? `最早的 ${i.trimmed} 条因为太长没有发送。` : '') +
         (i.memoryMode === 'layered' ? `核心栏带入 ${i.coreIncluded} 条，检索补回关键事实 ${i.coreRecalled} 条。` : '') +
         (i.continuity ? `按场景接续，召回 ${i.retrievalHits.length} 条历史记忆。` : i.memoryMode === 'layered' ? '分层记忆模式。' : '整包档案模式。')),

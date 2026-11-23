@@ -32,15 +32,22 @@ export function covered(text, sources) {
   });
 }
 
-function fit(rows, cap, max = Infinity) {
-  const result=[];
+function fit(rows, cap) {
+  const result = [];
+  const included = new Set();
   for (const row of rows) {
-    const chars = row.event.length + 18;
-    if (result.length >= max) break;
-    if (chars > cap || covered(row.event,result.map(r=>r.event))) continue;
-    result.push(row); cap-=chars;
+    const text = row.brief?.trim() && row.brief.trim().length <= 40 ? row.brief.trim() : row.event;
+    // A shared brief does not prove that two original facts are equivalent.
+    const key = row.event.normalize('NFKC').trim();
+    if (included.has(key)) continue;
+    const entry = {...row, event:text};
+    const cost = render([entry]).length + (result.length ? 1 : 0);
+    if (cost > cap) continue;
+    included.add(key);
+    result.push(entry);
+    cap -= cost;
   }
-  return result;
+  return {rows:result, omitted:rows.filter(r=>!included.has(r.event.normalize('NFKC').trim())).length};
 }
 const render = rows => rows.map(r=>'- [第'+r.sourceFrom+'–'+r.sourceTo+'章] '+r.event).join('\n');
 
@@ -72,7 +79,7 @@ function wordingCandidates(hits, query) {
   return selected;
 }
 
-export function leanMemory(mem, query, director, lastBody, aliases, present) {
+export function leanMemory(mem, query, director, lastBody, aliases, present, coreBudget = 1800) {
   const all = activeRecords(mem).filter(r=>typeof r.event === 'string' && r.event.trim());
   const vocab = new Set(aliases);
   const items = new Set();
@@ -97,22 +104,27 @@ export function leanMemory(mem, query, director, lastBody, aliases, present) {
     return n>0 && n<=Math.max(1,all.length*0.15);
   })])];
   const ranked=[...all].sort((a,b)=>(b.importance||0)-(a.importance||0)||b.sourceTo-a.sourceTo);
-  const core=fit(ranked.filter(r=>r.type!=='knowledge' && (r.irreversible || r.type==='correction')),600,8);
-  const knowledge=fit(ranked.filter(r=>r.type==='knowledge' && [...r.people||[],...r.knowers||[]].some(n=>present.includes(n))),600);
-  core.push(...knowledge);
+  const facts = fit(ranked.filter(r=>r.type !== 'knowledge' && (r.irreversible || r.type === 'correction')),coreBudget);
+  const relevantKnowledge = ranked.filter(r=>{
+    if (r.type !== 'knowledge') return false;
+    const people = [...r.people || [], ...r.knowers || []].filter(Boolean);
+    return !people.length || people.some(n=>present.includes(n));
+  });
+  const knowledge = fit(relevantKnowledge,800);
+  const core = [...facts.rows,...knowledge.rows];
   // 只有明确描述当前归属的短项可以常驻，带历史或引文的混合记录留待检索。
   const sceneTerms = [...new Set([...lexicalTerms(lastBody.slice(-300)), ...lexicalTerms(query)])]
     .filter(term => term.length >= 2 && !present.includes(term) && !aliases.includes(term) && !edge.test(term));
-  const state=fit(all.filter(r => sceneTerms.some(term => r.event.includes(term))).filter(r=>r.type==='thread' || (r.type==='item' && /^[^。！？：“”\n]{1,28}(?:现由|目前由)[^。！？：“”\n]{1,16}(?:保管|持有)[。]?$/u.test(r.event))).sort((a,b)=>b.sourceTo-a.sourceTo),900);
+  const state=fit(all.filter(r => sceneTerms.some(term => r.event.includes(term))).filter(r=>r.type==='thread' || (r.type==='item' && /^[^。！？：“”\n]{1,28}(?:现由|目前由)[^。！？：“”\n]{1,16}(?:保管|持有)[。]?$/u.test(r.event))).sort((a,b)=>b.sourceTo-a.sourceTo),900).rows;
   const hits=[];
   for (const r of all) {
-    if (fastPath || core.some(sent => sent.id === r.id && sent.event === r.event) || state.includes(r)) continue;
+    if (fastPath || core.some(sent => sent.id === r.id && sent.event === r.event) || state.some(sent=>sent.id === r.id && sent.event === r.event)) continue;
     if (['style','plan'].includes(r.type) && !(director && /套路|写法|暗处|幕后/.test(director))) continue;
     const labels=[r.event,...r.people||[],...r.items||[],...r.tags||[],r.location].filter(Boolean).join(' ');
     const matches=terms.filter(t=>labels.includes(t));
     if (matches.length) hits.push({r,matches,score:matches.reduce((s,t)=>s+t.length,0)});
   }
   hits.sort((a,b)=>b.score-a.score||(b.r.importance||0)-(a.r.importance||0)||b.r.sourceTo-a.r.sourceTo);
-  return {core:render(core),state:render(state),hits:[],coreOmitted:ranked.filter(r => (r.irreversible || r.type === 'correction') && !core.some(sent => sent.id === r.id)).length,records:{core,state,recalled:[]},
+  return {core:render(core),state:render(state),hits:[],coreOmitted:facts.omitted + knowledge.omitted,records:{core,state,recalled:[]},
     candidates:verify ? wordingCandidates(hits, query) : hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
 }
