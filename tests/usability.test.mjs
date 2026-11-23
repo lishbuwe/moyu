@@ -1359,3 +1359,22 @@ test('单故事分享只带关联的无密钥配置，导回保留本机凭据',
   await importData(file);
   assert.equal((await db.get('connections',c.id)).apiKey,c.apiKey);
 });
+
+test('从故事菜单复制设定重新开局，新故事不带历史节点和主角动态', async()=>{
+  const {story}=await seedStory();
+  story.cards=[{name:'旧相识',auto:{from:3},now:'后来才发生',base:'少言'}];
+  story.protagonist.stateEntries=[{sourceNodeId:'a1'}];
+  await db.put('stories',story);
+  const library=await import('../js/views/library.js');
+  await library.render(root);
+  root.querySelector('[aria-label="更多"]').click();
+  button('复制故事并重新开局').click();
+  await wait(()=>button('复制并重开'));
+  button('复制并重开').click();
+  await wait(async()=>(await db.all('stories')).length===2);
+  const copy=(await db.all('stories')).find(s=>s.id!==story.id);
+  assert.equal(copy.headId,null);assert.equal(copy.opening,story.opening);assert.equal(copy.rules,story.rules);
+  assert.equal(copy.cards[0].base,'少言');assert.equal(copy.cards[0].now,undefined);
+  assert.equal(copy.protagonist.stateEntries,undefined);
+  assert.equal((await db.byStory(copy.id)).length,0);assert.equal((await db.byStory(story.id)).length,2);
+});
