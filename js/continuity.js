@@ -96,12 +96,17 @@ export function continuityPlan(story, path, checkpoint, namesOf, { recentN = 2, 
   }
   const visibleScene = chapters.slice(sceneAt);
   const scene = visibleScene.slice(-recentN);
-  const current = [latestUser?.text, latestUser?.director, ...visibleScene.flatMap((c) => [c.user?.text, body(c)])].filter(Boolean).join('\n');
+  // 对话里谈到的人未必在场。场景判断只看最近正文的叙述和本轮导演指令。
+  const narration = text => (text || '').replace(/“[^”]*”|「[^」]*」/gu,' ');
+  const current = [narration(latestUser?.text),latestUser?.director,extra,...scene.flatMap(c=>[narration(c.user?.text),narration(body(c))])].filter(Boolean).join('\n');
   const byId = chapterIndex(chapters);
   const aliases = new Map((story.cards || []).map((card) => [card.name, namesOf(card)]));
   const protagonist = story.protagonist?.name;
+  const words = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh',{granularity:'word'}) : null;
+  const singleName = (text,name) => words ? [...words.segment(text)].some(s=>s.segment === name) :
+    text.split(/[^\p{L}\p{N}]+/u).includes(name);
   const mentioned = (name, text) => name && name !== protagonist && (aliases.get(name) || [name]).some((alias) =>
-    alias && (alias === name || alias.length >= 2) && text.includes(alias));
+    alias && (alias.length >= 2 ? text.includes(alias) : alias === name && singleName(text,alias)));
   const present = (name) => mentioned(name, current);
   const presentNames = [...aliases.keys()].filter(present);
   const excerpts = [];

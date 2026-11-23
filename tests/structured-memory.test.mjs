@@ -102,7 +102,7 @@ test('跨十二章接回试探原句，沿用当前场景，回退和改写后�
   assert.equal(mem.continuity.lines.length, 1);
   nodes.get('a11').checkpoint = mem;
   const story = { protagonist: { name: '顾律' }, cards: [{ name: '商衍', core: true }], danmu: false, options: false };
-  const next = { id: 'u15', role: 'user', kind: 'play', inputFormat: 'quoted', text: '我侧过头看他。' };
+  const next = { id: 'u15', role: 'user', kind: 'play', inputFormat: 'quoted', text: '我问商衍上次没说完的是什么。' };
   const result = buildContext(story, [...path, next], { budgetChars: 6000 });
   assert.ok(result.system.includes(line));
   assert.ok(result.system.includes(reply));

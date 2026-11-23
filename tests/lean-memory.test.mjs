@@ -92,3 +92,15 @@ test('重复句尾不会吞掉不同事实，缺失知情者的限制保留给�
   for(const r of records) assert.ok(c.system.includes(r.event));
   assert.equal(c.info.coreOmitted,0);
 });
+
+test('从台词询问他人行踪时不为被提及者带完整卡，禁止提醒只发一次',()=>{
+  const f=syntheticStory(60);
+  f.story.cards[0].forbid='唯一的禁止提醒';
+  f.story.cards[1].core=false;
+  f.path[2*53-1].text+='白杨曾经来过。';
+  const c=run(f,'我问陆青：“白杨今天来过吗？”');
+  assert.ok(!c.info.present.includes('白杨'));
+  assert.ok(!c.info.cards.includes('白杨'));
+  assert.equal((c.system+JSON.stringify(c.messages)).split('唯一的禁止提醒').length-1,1);
+  assert.ok(c.system.includes('律律'));
+});

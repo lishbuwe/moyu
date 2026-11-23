@@ -222,7 +222,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const director = [user?.director,extra].filter(Boolean).join(' ');
   const recentBodies = lean ? continuity.chapters.slice(-recentN).map(continuity.body) : [];
   if (lean) {
-    present = (story.cards || []).filter(c=>present.includes(c) || continuity.presentNames.includes(c.name));
+    present = (story.cards || []).filter(c=>continuity.presentNames.includes(c.name));
     sentCards = (story.cards || []).filter(c=>c.core || present.includes(c));
   }
   const selection = lean ? leanMemory(cp?.mem, [user?.text,director].filter(Boolean).join(' '), director,
@@ -233,7 +233,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   function promptCard(c) {
     const state=applyCardState(c,cp?.mem);
     if (lean && !present.includes(c)) return ['【角色卡·' + c.name + '】',(state.brief || state.now || state.base || '').split(/[。！？\n]/)[0].slice(0,60)].filter(Boolean).join(' · ');
-    return cardText(state,lean ? {arcLimit:700,voiceLimit:2} : {});
+    return cardText(lean ? {...state,forbid:''} : state,lean ? {arcLimit:700,voiceLimit:2} : {});
   }
   add('开头', '你正在主持一场文字互动小说。', 'base');
   add('规则（这个故事）', story.rules?.trim() ? '【规则】\n' + story.rules.trim() : '', 'rules');
@@ -268,7 +268,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const playReplies = kept.filter((n) => n.role === 'assistant' && n.kind !== 'ooc');
   const rawSet = new Set(playReplies.slice(-(lean ? 1 : keepRawLast)).map((n) => n.id));
 
-  const tail = tailReminder(present);
+  const tail = tailReminder(present,{maxEach:lean ? 8 : 5});
   const fmtTail = formatTail(story);
   const lastUser = kept.findLast((n) => n.role === 'user');
   function message(n, raw = false) {
@@ -290,6 +290,11 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const continuationChars = size(continuationMessages);
   let continuityInfo;
   const materials = [];
+  if (lean) for (const card of story.cards || []) {
+    const here = present.includes(card);
+    materials.push({source:'角色卡',id:card.name,chars:sentCards.includes(card) ? promptCard(card).length : 0,
+      reason:here ? '近期叙述或导演提及，完整卡；禁止清单在末尾提醒' : card.core ? '离场常驻，仅索引' : '离场非常驻，省略'});
+  }
   if (continuity) {
     if (size(messages) + system.length + continuationChars > budgetChars) {
       messages = kept.map((n) => message(n)).filter((m) => m.role === 'user' || m.content);
