@@ -60,10 +60,12 @@ function reportWriteError(e) {
   console.error('[墨游] 保存失败', e);
 }
 
-const readStories = new WeakSet();
+const readStories = new WeakMap();
+const pendingConflicts = new WeakMap();
+const same = (a,b) => JSON.stringify(a) === JSON.stringify(b);
 function readStory(story) {
   if (story && [1, 15].includes(Number(story.memEvery)) && !story.memEveryExplicit) story.memEvery = 10;
-  if (story) readStories.add(story);
+  if (story) readStories.set(story,structuredClone(story));
   return story;
 }
 
@@ -77,18 +79,55 @@ export const db = {
     try {
       if (store === 'stories') {
         const snapshot = structuredClone(value);
-        let conflict = false;
+        let baseline = readStories.get(value);
+        const pending = pendingConflicts.get(value);
+        if (pending) {
+          if (!globalThis.confirm('此故事在另一页有修改。保留本页冲突字段并保存？取消将载入另一页版本。')) {
+            const remote = await db.get('stories',snapshot.id);
+            if (remote) {
+              for (const k of Object.keys(value)) if (!(k in remote)) delete value[k];
+              Object.assign(value,remote);
+              readStories.set(value,structuredClone(remote));
+            }
+            pendingConflicts.delete(value);
+            throw new Error('已载入另一页的数据，请重新打开当前页面查看');
+          }
+          baseline = pending;
+          pendingConflicts.delete(value);
+        }
+        let conflict;
         await run(store,'readwrite',(os,tx)=>{
           const read = os.get(snapshot.id);
           read.onsuccess = ()=>{
-            if (read.result && (snapshot.writeRevision != null || readStories.has(value)) && (read.result.writeRevision || 0) !== (snapshot.writeRevision || 0)) {
-              conflict = true; tx.abort(); return;
+            const remote = read.result;
+            if (remote && (snapshot.writeRevision != null || baseline) && remote.writeRevision !== snapshot.writeRevision) {
+              if (!baseline) { conflict=remote; tx.abort(); return; }
+              for (const k of new Set([...Object.keys(remote),...Object.keys(baseline),...Object.keys(snapshot)])) {
+                if (k === 'writeRevision' || same(remote[k],baseline[k])) continue;
+                if (k !== 'updatedAt' && !same(snapshot[k],baseline[k]) && !same(snapshot[k],remote[k])) {
+                  conflict=remote; tx.abort(); return;
+                }
+                if (k in remote) snapshot[k]=remote[k]; else delete snapshot[k];
+              }
             }
-            snapshot.writeRevision = (read.result?.writeRevision || 0)+1;
+            snapshot.writeRevision = (remote?.writeRevision || 0)+1;
             os.put(snapshot);
           };
-        }).catch(e=>{ throw conflict ? new Error('故事已在别处更新，请刷新后重试') : e; });
-        value.writeRevision = snapshot.writeRevision;
+        }).catch(e=>{
+          if (!conflict) throw e;
+          // Save the remote baseline with only the conflicting local edits rebased on it.
+          for (const k of new Set([...Object.keys(baseline || {}),...Object.keys(conflict)])) {
+            if (!baseline || !same(value[k],baseline[k])) continue;
+            if (k in conflict) value[k]=structuredClone(conflict[k]); else delete value[k];
+          }
+          pendingConflicts.set(value,conflict);
+          throw new Error('故事已在别处更新，本页草稿已保留。再次保存可选择版本');
+        });
+        for (const k of new Set([...Object.keys(snapshot),...Object.keys(baseline || {})])) {
+          if (k !== 'writeRevision' && !(baseline && same(value[k],baseline[k]))) continue;
+          if (k in snapshot) value[k]=snapshot[k]; else delete value[k];
+        }
+        readStories.set(value,structuredClone(snapshot));
         r = snapshot.id;
       } else r = await run(store, 'readwrite', (os) => (key === undefined ? os.put(value) : os.put(value, key)));
     } catch (e) { reportWriteError(e); throw e; }

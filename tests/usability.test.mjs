@@ -1316,4 +1316,16 @@ test('较旧的故事副本不能覆盖另一个页面已保存的修改',async(
   a.title='更新后的标题';await db.put('stories',a);
   b.title='过期标题';await assert.rejects(db.put('stories',b),/别处更新/);
   assert.equal((await db.get('stories',story.id)).title,a.title);
+  await db.put('stories',b);
+  assert.equal((await db.get('stories',story.id)).title,b.title);
+});
+
+test('跨页面分别改标题和规则可以连续保存',async()=>{
+  const {story}=await seedStory();
+  const a=await db.get('stories',story.id), b=await db.get('stories',story.id);
+  a.title='新的标题';await db.put('stories',a);
+  b.rules='新的规则';await db.put('stories',b);
+  b.rules+='。';await db.put('stories',b);
+  const fresh=await db.get('stories',story.id);
+  assert.equal(fresh.title,a.title);assert.equal(fresh.rules,b.rules);
 });
