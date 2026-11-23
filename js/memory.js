@@ -121,7 +121,7 @@ export function archivistPrompt(story, prev, batch) {
       protagonistText(story),
       cards ? '【角色卡（初始设定、原话、禁止清单这些不归你改；你只负责“当前状态”“变化轨迹”“关系档案”）】\n' + cards : '【角色卡】\n（还没有任何角色卡）',
       '【已有的前情档案】\n' + prevText,
-      prev.records?.length ? '【近期可覆盖的结构化记忆 ID】\n' + prev.records.filter((x) => x.invalidatedAt == null).slice(-80)
+      prev.records?.length ? '【近期可覆盖的结构化记忆 ID】\n' + prev.records.filter((x) => x.column === 'event' && !x.irreversible && x.invalidatedAt == null).slice(-80)
         .map((x) => `${x.id}｜第${x.sourceFrom}${x.sourceTo !== x.sourceFrom ? '–' + x.sourceTo : ''}章｜${x.event.slice(0, 130)}`).join('\n') : '',
       story.memoryMode !== 'full' ? continuityArchivePrompt(prev.continuity) : '',
       `【新的剧情：第${from}–${to}章】\n` + batch.map(chapterBlock).join('\n\n'),

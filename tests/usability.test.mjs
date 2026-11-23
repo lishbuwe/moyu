@@ -1295,3 +1295,17 @@ test('整理依据章节原句结束旧事项并更新归属，空列表仍保�
   assert.equal(m.records.find(r=>r.event==='甲持有钥匙').invalidatedAt,2);
   assert.ok(m.unsure.some(s=>s.includes('乙不知道地址')));
 });
+
+test('超过三十条的未决事项休眠，下一次整理仍保留可检索的有效记录',async()=>{
+  const {story,nodes}=await seedStory();
+  const first={...nodes[1],checkpoint:{upTo:1,threads:Array.from({length:32},(_,i)=>'未决事项'+i),cards:{}}};
+  const path=[nodes[0],first];
+  for(let i=2;i<=3;i++){
+    const n={...nodes[1],id:'sleep'+i,parentId:path.at(-1).id,text:'窗外下起了雨。'};
+    path.push(n);responses.push(JSON.stringify({summary:'窗外下雨',threads:[]}));
+    await runArchivist(story,new Map(path.map(n=>[n.id,n])),path,await db.get('connections','qa-conn'));
+    assert.equal(n.checkpoint.threads.length,30);
+    const old=n.checkpoint.records.find(r=>r.event==='未决事项0');
+    assert.ok(old.dormant);assert.equal(old.invalidatedAt,null);
+  }
+});

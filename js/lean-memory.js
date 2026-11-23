@@ -91,7 +91,7 @@ export function leanMemory(mem, query, director, lastBody, aliases, present, cor
   // 只有明确描述当前归属的短项可以常驻，带历史或引文的混合记录留待检索。
   const sceneTerms = [...new Set([...lexicalTerms(lastBody.slice(-300)), ...lexicalTerms(query)])]
     .filter(term => term.length >= 2 && !present.includes(term) && !aliases.includes(term) && !edge.test(term));
-  const state=fit(all.filter(r => sceneTerms.some(term => r.event.includes(term))).filter(r=>r.type==='thread').sort((a,b)=>b.sourceTo-a.sourceTo),900).rows;
+  const state=fit(all.filter(r => sceneTerms.some(term => r.event.includes(term))).filter(r=>r.type==='thread' && !r.dormant).sort((a,b)=>b.sourceTo-a.sourceTo),900).rows;
   const hits=[];
   for (const r of all) {
     if (fastPath || core.some(sent => sent.id === r.id && sent.event === r.event) || state.some(sent=>sent.id === r.id && sent.event === r.event)) continue;
