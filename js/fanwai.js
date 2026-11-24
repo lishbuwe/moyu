@@ -107,14 +107,14 @@ export function buildExtraContext(story, opts) {
   const recent = recentN > 0 ? upto.slice(-recentN) : [];
   const pinnedSet = new Set(pinned.filter((no) => no <= anchorNo));
   const layout = layoutOf(template);
-  const snapshotChapters = layout ? upto.slice(-3) : [];
+  const picked = upto.filter(c => pinnedSet.has(c.no) || recent.includes(c));
+  const snapshotChapters = layout ? picked.slice(-3) : [];
   const nodeById = new Map((opts.path || []).map(n => [n.id, n]));
-  const older = upto.filter(c => !recent.includes(c) && !pinnedSet.has(c.no) && !snapshotChapters.includes(c));
-  const passages = older.length ? recallPassages(
+  const older = upto.filter(c => !picked.includes(c));
+  const passages = recentN > 0 && older.length ? recallPassages(
     older.map(c => ({ ...c, node: nodeById.get(c.id) || c })), [], c => c.text,
     { query: request, context: upto.at(-1)?.title || '', people: castNames(opts.cast), changedScene: true, recentN: 0 }
   ) : [];
-  const picked = upto.filter((c) => pinnedSet.has(c.no) || recent.includes(c) || snapshotChapters.includes(c));
   const materialOf = (c) => `【第${c.no}章${c.title ? ' · ' + c.title : ''}】\n${c.said ? '（主角：' + c.said.trim() + '）\n' : ''}${c.text}`;
   const recentMaterial = picked.filter((c) => !pinnedSet.has(c.no)).map(materialOf).join('\n\n');
   const pinnedMaterial = picked.filter((c) => pinnedSet.has(c.no)).map(materialOf).join('\n\n');
@@ -155,7 +155,7 @@ export function buildExtraContext(story, opts) {
     add('剧情快照材料', '【自动附带的剧情快照材料】\n'+
       '角色档案使用下方主角与角色卡，关系阶段、最近3件具体事件及未回收细节从下方最近章节提取；没有依据的口头禅、癖好与底线不补成事实。语气依据人设和本次要求选择。\n'+
       (snapshotChapters.length ? snapshotChapters.map(c => `事件来源 第${c.no}章（${c.id}）：${c.title || '未命名'}，主角当轮行动：${c.said || '无'}；具体事件见下方本章原文。`).join('\n')
-        : '正史还未开始，没有可评分的历史事件。报告应标记资料不足，其他玩法可依据人设原创非正史小事。'));
+        : anchorNo > 0 ? '本次未选择章节原文，可参考截至该时间点的档案和人设。' : '正史还未开始，没有可评分的历史事件。报告应标记资料不足，其他玩法可依据人设原创非正史小事。'));
     add('材料排版', LAYOUT_GUIDE);
     if (PLAYBOOK_UPDATES[layout] && !template?.text?.includes(PLAYBOOK_UPDATES[layout])) add('当前玩法要求', PLAYBOOK_UPDATES[layout]);
     if (PLAYBOOK_RELATIONS[layout] && !template?.text?.includes(PLAYBOOK_RELATIONS[layout])) add('人物关系与材料整合',PLAYBOOK_RELATIONS[layout]);

@@ -684,7 +684,7 @@ test('玩法快照仅取锚点前最近三章，带子类与自由扩展，空�
   const {buildExtraContext,builtinTemplates}=await import('../js/fanwai.js');
   const {story}=await seedStory();const template=builtinTemplates().find(t=>t.name==='恋爱脑报告');
   const chapters=[1,2,3,4,5].map(no=>({no,id:'chapter-'+no,title:'事件'+no,said:'行动'+no,text:'第'+no+'章独有事件'}));
-  const make=anchorNo=>buildExtraContext(story,{template,chapters,anchorNo,recentN:0,variant:'观察侧重：日程让步'});
+  const make=anchorNo=>buildExtraContext(story,{template,chapters,anchorNo,recentN:3,variant:'观察侧重：日程让步'});
   const a=make(3),b=make(4);
   assert.deepEqual(a.info.snapshotChapters,[1,2,3]);assert.deepEqual(b.info.snapshotChapters,[2,3,4]);
   assert.ok(!a.system.includes('第4章独有事件'));assert.ok(b.system.includes('第4章独有事件'));
@@ -1520,4 +1520,23 @@ test('每种预设与对应模式的正文底色对比度均达 4.5',async () =>
       assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5);
     }
   }
+});
+
+test('番外选择零章只带手选原文，选择一章不会自动补三章', async () => {
+  const {buildExtraContext}=await import('../js/fanwai.js');
+  const chapters=[1,2,3,4,5].map(no=>({no,id:'ch'+no,text:'排练场景'+no+'。'}));
+  const make=(recentN,pinned)=>buildExtraContext({}, {template:{name:'论坛体',layout:'forum'},chapters,anchorNo:4,recentN,pinned,request:'回想排练场景'});
+  const empty=make(0,[]);
+  assert.doesNotMatch(empty.system,/排练场景|正史还未开始/);
+  assert.deepEqual(empty.info.excerptChapters,[]);
+  assert.deepEqual(make(0,[2,5]).info.chapters,[2]);
+  assert.deepEqual(make(1,[]).info.chapters,[4]);
+});
+
+test('列出旧连接不会改写用户的输出上限', async () => {
+  const {getConnections}=await import('../js/state.js');
+  const old={id:'legacy-limit',maxTokens:4000};
+  await db.put('connections',old);
+  assert.equal((await getConnections()).find(c=>c.id===old.id).maxTokens,4000);
+  assert.deepEqual(await db.get('connections',old.id),old);
 });

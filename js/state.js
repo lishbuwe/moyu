@@ -34,14 +34,6 @@ export async function getDefaultRules() {
 
 export async function getConnections() {
   const list = await db.all('connections');
-  // 旧版默认输出上限 4000：中文一章加弹幕选项经常写不完（尤其开了思考的模型），统一调到 8000
-  for (const c of list) {
-    if (!c.mt8000) {
-      if (c.maxTokens == null || Number(c.maxTokens) === 4000) c.maxTokens = 8000;
-      c.mt8000 = true;
-      db.put('connections', c).catch(() => {});
-    }
-  }
   return list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 }
 export async function getDefaultConnId() { return db.kvGet('defaultConn', null); }
