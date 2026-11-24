@@ -249,7 +249,7 @@ export async function render(root, { id }) {
     const wrap = el('div', { class: 'turn', 'data-id': n.id });
     if (n.kind === 'ooc') {
       const box = el('div', { class: 'gm ooc' });
-      for (const p of paragraphs(n.text)) box.append(el('p', {}, inlineText(p, getPrefs().emphasis !== false, getPrefs().dialogueColor !== false)));
+      for (const p of paragraphs(n.text)) box.append(el('p', {}, inlineText(p, getPrefs().emphasis !== false, getPrefs().dialogueTint !== false)));
       if (live && !n.text) box.append(el('div', { class: 'thinking', text: n.thinking ? '思考中' : '回复中' }));
       if (!live && n.text?.trim()) box.append(el('div', { class: 'row end' }, versionCtl(n), moreBtn(() => replyMenu(n, { isLast }))));
       if (isLast && !live && n.text?.trim() && n.status !== 'error') {
@@ -292,7 +292,7 @@ export async function render(root, { id }) {
       paras.forEach((t, i) => g.append(el('p', {
         class: [live && i === paras.length - 1 ? 'cursor' : '', picking ? 'pick' : ''].filter(Boolean).join(' ') || null,
         onclick: picking ? () => rewriteFrom(n, i) : null,
-      }, inlineText(t, getPrefs().emphasis !== false, getPrefs().dialogueColor !== false))));
+      }, inlineText(t, getPrefs().emphasis !== false, getPrefs().dialogueTint !== false || !!getPrefs().dialogueColor))));
       if (live && !n.text) g.append(el('div', { class: 'thinking', text: n.thinking ? '模型思考中' : '正在构思' }));
       if (story.danmu !== false && p.danmu.length && !picking) {
         const d = el('details', { class: 'danmu' }, el('summary', { text: `弹幕 · ${p.danmu.length}` }));

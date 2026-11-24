@@ -1,6 +1,12 @@
 /* 墨游 · 样式 */
 :root {
   --bg: #f6f3ee;
+  --reading-swatch-0: #393538;
+  --reading-swatch-1: #70472d;
+  --reading-swatch-2: #873d55;
+  --reading-swatch-3: #354e77;
+  --reading-swatch-4: #365e61;
+  --reading-swatch-5: #644675;
   --bg2: #efebe4;
   --card: #fffdf9;
   --text: #2a2622;
@@ -23,6 +29,12 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #18161c;
+  --reading-swatch-0: #e7e0dd;
+  --reading-swatch-1: #e4b896;
+  --reading-swatch-2: #efaac0;
+  --reading-swatch-3: #b3caf1;
+  --reading-swatch-4: #a6d4d4;
+  --reading-swatch-5: #d6b7e6;
     --bg2: #211e26;
     --card: #232028;
     --text: #e6e0d6;
@@ -521,3 +533,11 @@ a { color: var(--accent); }
 .ex-report-document .ex-chat .ex-chat-head { font-size: 12px; }
 .ex-report-document .ex-chat .ex-chat-avatar { width: 22px; height: 22px; font-size: 10px; }
 .ex-report-document .ex-chat .ex-time, .ex-report-document .ex-chat .ex-system, .ex-report-document .ex-chat .ex-chat-note { font-size: 10px; }
+
+.play-scroll .gm:not(.ooc) > p, .reading-sample { color: var(--read-text, var(--text)); }
+.play-scroll .gm:not(.ooc) > p .dialogue-text, .reading-sample-dialogue { color: var(--read-dialogue, var(--dialogue)); }
+.reading-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.reading-swatch { width: 32px; height: 32px; border: 2px solid var(--card); border-radius: 50%; }
+.reading-swatch[aria-pressed="true"] { outline: 2px solid var(--text); }
+.reading-palette input[type="color"] { width: 48px; height: 32px; padding: 2px; }
+.reading-sample { font: var(--read-size)/1.8 var(--read-font); background: var(--bg); padding: 8px; }

@@ -1,25 +1,27 @@
 // 墨游 · 共享状态：阅读偏好、连接、默认规则、页面跳转
 
+import { normalizeReadingPrefs, applyReadingColors } from './reading-colors.js';
 import { db } from './db.js';
 import { DEFAULT_RULES } from './prompt.js';
 import { CURRENT_STORY_KEY } from './personal.js';
 
-export const DEFAULT_PREFS = { fontSize: 17, font: 'serif', indent: true, danmuOpen: true };
+export const DEFAULT_PREFS = { fontSize: 17, font: 'serif', indent: true, danmuOpen: true, bodyColor:'', dialogueColor:'', dialogueTint:true };
 let prefs = { ...DEFAULT_PREFS };
 
 export async function loadPrefs() {
-  prefs = { ...DEFAULT_PREFS, ...((await db.kvGet('prefs', null)) || {}) };
+  prefs = normalizeReadingPrefs({ ...DEFAULT_PREFS, ...((await db.kvGet('prefs', null)) || {}) });
   applyPrefs();
   return prefs;
 }
 export function getPrefs() { return prefs; }
 export async function setPrefs(patch) {
-  prefs = { ...prefs, ...patch };
+  prefs = normalizeReadingPrefs({ ...prefs, ...patch });
   applyPrefs();
   await db.kvSet('prefs', prefs);
 }
 export function applyPrefs() {
   const r = document.documentElement;
+  applyReadingColors(r,prefs);
   r.style.setProperty('--read-size', prefs.fontSize + 'px');
   r.dataset.font = prefs.font;
   r.dataset.indent = prefs.indent ? 'on' : 'off';

@@ -1,3 +1,4 @@
+import {readingColorsEditor} from '../reading-colors.js';
 // 墨游 · 设置：连接、默认规则、阅读、备份
 
 import { db, exportAll, importData, storageInfo } from '../db.js';
@@ -62,6 +63,9 @@ export async function render(root, { section }) {
     el('div', { class: 'scroll' }, wrap)
   ));
 
+  const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+  let colors;
+  const refreshColors = () => colors?.refresh();
   async function draw() {
     wrap.replaceChildren();
     const conns = await getConnections();
@@ -206,6 +210,7 @@ export async function render(root, { section }) {
 
     // ── 阅读 ──
     const p = getPrefs();
+    colors = readingColorsEditor(getPrefs,setPrefs,media);
     wrap.append(el('div', { class: 'section-title', text: '阅读' }));
     wrap.append(el('div', { class: 'card' },
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '字号'),
@@ -214,7 +219,8 @@ export async function render(root, { section }) {
         seg([['serif', '宋体'], ['sans', '黑体']], p.font, (v) => setPrefs({ font: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '段首缩进'), sw(p.indent, (v) => setPrefs({ indent: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '关键词加粗与强调色'), sw(p.emphasis !== false, (v) => setPrefs({ emphasis: v }))),
-      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '台词柔和配色'), sw(p.dialogueColor !== false, (v) => setPrefs({ dialogueColor: v }))),
+      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '台词柔和配色'), sw(p.dialogueTint !== false, (v) => { setPrefs({ dialogueTint: v }); refreshColors(); })),
+      colors.box,
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '按网名固定弹幕颜色'), sw(!!p.danmuNameColors, (v) => setPrefs({danmuNameColors:v}))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '弹幕默认展开'), sw(p.danmuOpen, (v) => setPrefs({ danmuOpen: v })))
     ));
@@ -656,4 +662,6 @@ export async function render(root, { section }) {
   if (section === 'new') editConn(null);
   if (section === 'fanwai') requestAnimationFrame(() => document.getElementById('sec-fanwai')?.scrollIntoView({ block: 'start' }));
   if (section === 'modules') requestAnimationFrame(() => document.getElementById('sec-modules')?.scrollIntoView({ block: 'start' }));
+  media?.addEventListener('change',refreshColors);
+  return () => media?.removeEventListener('change',refreshColors);
 }

@@ -1467,3 +1467,48 @@ test('整理请求明确要求知情者并把返回的名单存进信息差记�
   const row = (await db.get('nodes','a1')).checkpoint.records.find(r=>r.column==='knowledge' && r.event===event);
   assert.deepEqual(row.knowers,['甲']);
 });
+
+test('阅读颜色迁移旧开关，过滤非法值，设置后重开保留，恢复默认清除覆盖', async () => {
+  const {loadPrefs,getPrefs,setPrefs} = await import('../js/state.js');
+  const style = document.documentElement.style;
+  await db.kvSet('prefs',{dialogueColor:false,bodyColor:'red;display:none',fontSize:19});
+  await loadPrefs();
+  assert.equal(getPrefs().dialogueTint,false);
+  assert.equal(getPrefs().fontSize,19);
+  assert.equal(style.getPropertyValue('--read-text'),'');
+  assert.equal(style.getPropertyValue('--read-dialogue'),'');
+  await setPrefs({dialogueColor:'#abc',bodyColor:'#121212'});
+  await loadPrefs();
+  assert.equal(style.getPropertyValue('--read-dialogue'),'#abc');
+  assert.equal(style.getPropertyValue('--read-text'),'#121212');
+  const dispose = await settings.render(root,{});
+  try {
+    const picker = root.querySelector('[aria-label="自定义正文颜色"]');
+    picker.value='#ffffff'; picker.dispatchEvent(new Event('input'));
+    assert.equal(style.getPropertyValue('--read-text'),'#ffffff');
+    assert.match(root.querySelector('.reading-colors').textContent,/这个颜色在当前模式下可能看不清/);
+    root.querySelector('[aria-label="台词颜色 · 灰紫"]').click();
+    assert.equal(style.getPropertyValue('--read-dialogue'),'var(--reading-swatch-5)');
+    root.querySelector('.reading-colors .btn').click();
+    assert.equal(style.getPropertyValue('--read-dialogue'),'');
+    assert.equal(style.getPropertyValue('--read-text'),'');
+  } finally { dispose(); await db.kvSet('prefs',null); await loadPrefs(); }
+});
+
+test('每种预设与对应模式的正文底色对比度均达 4.5',async () => {
+  const css = await readFile(new URL('../css/app.css',import.meta.url),'utf8');
+  function luminance(hex) {
+    const [r,g,b] = hex.match(/../g).map(x=>parseInt(x,16)/255).map(x=>x<=.04045 ? x/12.92 : ((x+.055)/1.055)**2.4);
+    return .2126*r+.7152*g+.0722*b;
+  }
+  const palettes = [...css.matchAll(/--bg: #([0-9a-f]{6});([^}]+)/g)];
+  assert.equal(palettes.length,2);
+  for (const [,bg,variables] of palettes) {
+    const colors = [...variables.matchAll(/--reading-swatch-\d+: #([0-9a-f]{6});/g)];
+    assert.ok(colors.length>=6);
+    for (const [,color] of colors) {
+      const a=luminance(bg),b=luminance(color);
+      assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5);
+    }
+  }
+});
