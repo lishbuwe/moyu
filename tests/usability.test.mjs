@@ -1457,3 +1457,13 @@ test('补回开场提示也占预算，差一字时继续裁剪', () => {
   assert.equal(tighter.info.trimmed,2);
   assert.ok(tighter.info.totalChars<=tighter.info.budgetChars);
 });
+
+test('整理请求明确要求知情者并把返回的名单存进信息差记录', async () => {
+  const {story,nodes} = await seedStory();
+  const event = '甲从通知中知道门已关闭';
+  responses.push(JSON.stringify({summary:event,knowledge:[event],memories:[{type:'knowledge',event,sourceChapter:1,knowers:['甲']}]}));
+  await runArchivist(story,new Map(nodes.map(n=>[n.id,n])),nodes,await db.get('connections','qa-conn'));
+  assert.match(JSON.stringify(requests[0].body),/必须填写 knowers/);
+  const row = (await db.get('nodes','a1')).checkpoint.records.find(r=>r.column==='knowledge' && r.event===event);
+  assert.deepEqual(row.knowers,['甲']);
+});

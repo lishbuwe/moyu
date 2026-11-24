@@ -117,7 +117,7 @@ export function archivistPrompt(story, prev, batch) {
         changes: [{field:'items/threads/knowledge/offscreen/repeats', old:'需要结束的旧条目，逐字复制', chapter:from, quote:'证明已解决或被替换的本批正文连续原句', next:'替代条目，已解决则空字符串'}],
         items: ['新增或变化的物品、信物、特殊标记：谁给了谁什么、现在在谁手里'],
         threads: ['仅新增的条目，修改或结束已有条目用 changes：未决事项、承诺、暗线、已选但未演绎完的行动，以及玩家明确保留的后续提案。标明发生状态与具体内容，不只记选项字母；未选且未保留的提案不列为待办，已经解决的删掉。资料没有对应内容时放 unsure，不脑补'],
-        knowledge: ['仅新增的条目，修改或结束已有条目用 changes：重要的信息差，写成“某事：谁知道／谁不知道（从什么渠道知道）”，尤其写清主角自己知道什么'],
+        knowledge: ['仅新增的条目，修改或结束已有条目用 changes：重要的信息差，写成“某事：谁知道／谁不知道（从什么渠道知道）”，每条同时在 memories 中按完全相同的 event 原文给出 type=knowledge，必须填写 knowers，列明确知情者，只有无法确定时才留空数组。尤其写清主角自己知道什么'],
         memories: [{ event: '本章具体事件或改变的事实，一条一件；无法确定归属章节就留空', sourceChapter: from,
           brief:'不可逆事实可给40字内准确简版，保留限定条件；否则留空', people: ['涉及的人物，用角色卡名'], location: '地点，不确定则空字符串', items: ['物品和别名'], type: '关系/事实/承诺/物品/暗线',
           importance: 7, irreversible: false, knowers: ['逐条列出明确亲历或被告知此事的人名；公开发布且公众能获知的事实加入“公开”。公开场合的私语、内心和幕后动机单独记。无法确定就空数组'], tags: ['称呼、别名和可检索的关键词'], replaces: ['被覆盖的旧记忆 ID；无法确定就空数组'] }],
