@@ -461,7 +461,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       parts: parts.filter((p) => p.text).map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
       tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
       memoryUpTo: cp ? cp.mem.upTo : 0,
-      memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreIncluded: layered?.records.core.length || 0, coreRecalled: layered?.records.recalled.filter(r => coreFact(r) && layered.hits.some(h => h.id === r.id)).length || 0, coreOmitted: layered?.coreOmitted || 0, continuity: continuityInfo,
+      memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreIncluded: layered?.records.core.length || 0, coreRecalled: layered?.records.recalled.filter(r => coreFact(r) && layered.hits.some(h => h.id === r.id)).length || 0, coreOmitted: layered?.omittedCore.length || 0, omittedCore: (layered?.omittedCore || []).map(r => ({ from:r.sourceFrom, to:r.sourceTo, preview:[...r.event].slice(0,30).join(''), recalled:layered.hits.some(h => h.id === r.id) })), continuity: continuityInfo,
     },
   };
 }

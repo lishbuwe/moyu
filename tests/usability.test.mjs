@@ -1214,6 +1214,11 @@ test('核心栏装不下时，相关关键事实进入最终请求并计入补�
   const path=[{id:'a',role:'assistant',text:'他到了。',checkpoint:{upTo:45,records:facts,cards:{}}},{id:'u',role:'user',text:'还记得以前那本速写本吗？'}];
   const ctx=buildContext({cards:[]},path,{budgetChars:6000});
   assert.equal(ctx.info.coreOmitted,45 - ctx.info.coreIncluded);
+  assert.equal(ctx.info.omittedCore.length,ctx.info.coreOmitted);
+  assert.ok(ctx.info.omittedCore.every(r => [...r.preview].length <= 30));
+  assert.equal(ctx.info.totalChars,ctx.system.length + ctx.messages.reduce((sum,m)=>sum+m.content.length,0));
+  const omitted = ctx.info.omittedCore.find(r=>!r.recalled);
+  assert.ok(!ctx.system.includes(omitted.preview));
   assert.equal(ctx.info.coreRecalled,1);
   assert.ok(ctx.info.coreIncluded > 0 && ctx.info.coreIncluded <= 8);
   assert.ok(ctx.system.includes(facts[0].event));

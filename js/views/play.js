@@ -1220,6 +1220,7 @@ export async function render(root, { id }) {
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),
         el('div', {}, '在场（会提醒禁止清单）：', i.present?.length ? i.present.join('、') : '无'),
         el('div', {}, '规则模块：', i.modules?.length ? i.modules.join('、') : '无')),
+      i.omittedCore?.length ? block('核心栏未带入 · '+i.omittedCore.length+' 条', i.omittedCore.map(r => '第'+r.from+(r.from === r.to ? '' : '–'+r.to)+'章 · '+r.preview+(r.recalled ? '（检索已补回）' : '')).join('\n')) : null,
       i.materials?.length ? block('本轮选材依据', i.materials.map(m=>[m.source,m.chapter && '第'+(m.from && m.from!==m.chapter ? m.from+'–' : '')+m.chapter+'章',m.id,m.reason,m.chars+'字'].filter(Boolean).join(' · ')).join('\n')) : null,
       ...(i.parts || []).map((p) => block(`${p.label} · ${p.chars.toLocaleString()} 字`, p.text)),
       block(`剧情对话 · ${i.historyChars.toLocaleString()} 字`, ctx.messages.map((m) => `【${m.role === 'user' ? '玩家' : 'GM'}】\n${m.content}`).join('\n\n')),

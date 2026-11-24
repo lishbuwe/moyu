@@ -182,6 +182,13 @@ export function layeredMemory(mem, query, { at = mem?.upTo || 0, coreChars = 230
   const coreWanted = all.filter(coreFact)
     .sort((a, b) => (b.importance || 0) - (a.importance || 0) || b.sourceTo - a.sourceTo);
   const core = fit(coreWanted, coreChars);
+  const coreKeys = new Set(seen);
+  const omittedCore = coreWanted.filter(r => {
+    const key = factKey(r.event);
+    if (coreKeys.has(key)) return false;
+    coreKeys.add(key);
+    return true;
+  });
   const state = fit(all.filter((r) => ['thread', 'item'].includes(r.type))
     .sort((a, b) => b.sourceTo - a.sourceTo), stateChars);
   const options = { at, scope, pov, limitChars: retrieveChars, requireMatch, omit: [...core, ...state] };
@@ -191,7 +198,7 @@ export function layeredMemory(mem, query, { at = mem?.upTo || 0, coreChars = 230
   const line = (r) => `- [第${r.sourceFrom}${r.sourceTo === r.sourceFrom ? '' : '–' + r.sourceTo}章] ${r.event}`;
   return { core: core.map(line).join('\n'), state: state.map(line).join('\n'), recalled: recalled.map(line).join('\n'),
     hits: recalled.map((r) => ({ id: r.id, from: r.sourceFrom, to: r.sourceTo })),
-    coreOmitted: new Set(coreWanted.map(r => factKey(r.event))).size - core.length, records: { core, state, recalled } };
+    omittedCore, coreOmitted: omittedCore.length, records: { core, state, recalled } };
 }
 
 /** 按分支节点的历史版本合并，允许从未来那份档案里找回确知发生在时间点之前的事件。 */

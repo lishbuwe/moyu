@@ -51,7 +51,7 @@ function fit(rows, cap) {
     result.push(entry);
     cap -= cost;
   }
-  return {rows:result, omitted:rows.filter(r=>!included.has(r.event.normalize('NFKC').trim())).length};
+  return {rows:result, omitted:rows.filter(r=>!included.has(r.event.normalize('NFKC').trim()))};
 }
 const render = rows => rows.map(r=>'- [第'+r.sourceFrom+'–'+r.sourceTo+'章] '+r.event).join('\n');
 
@@ -101,6 +101,6 @@ export function leanMemory(mem, query, director, lastBody, aliases, present, cor
     if (matches.length) hits.push({r,matches,score:matches.reduce((s,t)=>s+t.length,0)});
   }
   hits.sort((a,b)=>b.score-a.score||(b.r.importance||0)-(a.r.importance||0)||b.r.sourceTo-a.r.sourceTo);
-  return {core:render(core),state:render(state),hits:[],coreOmitted:facts.omitted + knowledge.omitted,records:{core,state,recalled:[]},
+  return {core:render(core),state:render(state),hits:[],omittedCore:[...facts.omitted,...knowledge.omitted].sort((a,b)=>(b.importance||0)-(a.importance||0)||b.sourceTo-a.sourceTo),records:{core,state,recalled:[]},
     candidates:hits,fastPath,verify,terms,topicTerms:intent?topicTerms:[]};
 }
