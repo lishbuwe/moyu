@@ -216,6 +216,8 @@ export async function render(root, { section }) {
         seg([[15, '小'], [17, '中'], [19, '大'], [21, '特大']], p.fontSize, (v) => setPrefs({ fontSize: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '正文字体'),
         seg([['serif', '宋体'], ['sans', '黑体']], p.font, (v) => setPrefs({ font: v }))),
+      el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '阅读背景'),
+        seg([['plain', '普通'], ['paper', '纸书']], p.readingBackground || 'plain', v => setPrefs({ readingBackground: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '段首缩进'), sw(p.indent, (v) => setPrefs({ indent: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '关键词加粗与强调色'), sw(p.emphasis !== false, (v) => setPrefs({ emphasis: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '台词柔和配色'), sw(p.dialogueTint !== false, (v) => { setPrefs({ dialogueTint: v }); refreshColors(); })),

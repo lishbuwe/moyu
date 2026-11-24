@@ -1492,6 +1492,14 @@ test('阅读颜色迁移旧开关，过滤非法值，设置后重开保留，�
   assert.equal(style.getPropertyValue('--read-text'),'#121212');
   const dispose = await settings.render(root,{});
   try {
+    const page = document.documentElement;
+    assert.equal(page.dataset.readingBackground,'plain');
+    button('纸书').click();
+    await wait(async () => (await db.kvGet('prefs')).readingBackground === 'paper');
+    await loadPrefs();
+    assert.equal(page.dataset.readingBackground,'paper');
+    button('普通').click();
+    assert.equal(page.dataset.readingBackground,'plain');
     const picker = root.querySelector('[aria-label="自定义正文颜色"]');
     picker.value='#ffffff'; picker.dispatchEvent(new Event('input'));
     assert.equal(style.getPropertyValue('--read-text'),'#ffffff');

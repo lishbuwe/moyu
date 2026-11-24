@@ -24,6 +24,7 @@ function applyPrefs() {
   applyReadingColors(r,prefs);
   r.style.setProperty('--read-size', prefs.fontSize + 'px');
   r.dataset.font = prefs.font;
+  r.dataset.readingBackground = prefs.readingBackground === 'paper' ? 'paper' : 'plain';
   r.dataset.indent = prefs.indent ? 'on' : 'off';
 }
 
