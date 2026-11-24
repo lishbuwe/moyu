@@ -1440,3 +1440,20 @@ test('整包模式预算不足时先删最早消息，保留最后回复原文',
   assert.deepEqual(ctx.messages.slice(1),full.messages.slice(1));
   assert.equal(ctx.messages.at(-1).content,path.at(-1).text);
 });
+
+test('补回开场提示也占预算，差一字时继续裁剪', () => {
+  const story = {memoryMode:'full'};
+  const path = Array.from({length:4},(_,i)=>[
+    {id:'u'+i,role:'user',text:'问'.repeat(100)},
+    {id:'a'+i,role:'assistant',text:'答'.repeat(100)},
+  ]).flat();
+  const full = buildContext(story,path);
+  const withLead = buildContext(story,path,{budgetChars:full.info.totalChars-1});
+  assert.equal(withLead.info.trimmed,1);
+  assert.equal(withLead.messages[0].role,'user');
+  const exact = buildContext(story,path,{budgetChars:withLead.info.totalChars});
+  assert.deepEqual(exact.messages,withLead.messages);
+  const tighter = buildContext(story,path,{budgetChars:exact.info.totalChars-1});
+  assert.equal(tighter.info.trimmed,2);
+  assert.ok(tighter.info.totalChars<=tighter.info.budgetChars);
+});
