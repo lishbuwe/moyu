@@ -185,7 +185,7 @@ async function newExtra(story, nodes) {
     el('div', { class: 'field' }, el('label', { text: '带上时间点前最近几章的原文' }), recent, el('div', { class: 'hint', text: '让模型熟悉人物口吻和最近发生的事。更早的剧情可以在下面单独指定。' })),
     chapters.length ? el('details', { class: 'card', style: { padding: '10px 12px' } }, el('summary', { style: { cursor: 'pointer' }, text: '额外指定章节作素材（可选）' }), pinBox) : null,
     el('div', { class: 'field', style: { marginTop: '12px' } }, el('label', { text: '知情范围' }), scopeSel,
-      el('div', { class: 'hint', text: '全知会带最近原文；公开或角色视角只带明确标注其知情范围的记忆以及角色卡中的公开资料。' })),
+      el('div', { class: 'hint', text: '选择番外里的人可以知道哪些事。各视角都会参考所选时间点的剧情。' })),
     el('div', { class: 'field' }, el('label', { text: '篇幅' }), lenSeg, lenCustom, el('div', { class: 'hint', text: '很长的番外模型可能一次写不完，写完后点“接着写”可以续上。' })),
     enabledAlways.length ? el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '带上这个故事的规则模块', el('small', { text: enabledAlways.map((m) => m.name).join('、') + '（不带正文的游玩规则）' })), withMods.el) : null,
   ].filter(Boolean));
@@ -356,17 +356,11 @@ async function renderReader(root, story, nodes, extraId) {
     const head = pathTo(nodes, story.headId);
     const historyPath = path.length && head.some((n) => n.id === x.anchorId) ? head : path;
     const chapters = chaptersOf(path);
-    const cacheKey = 'extraEvidence.' + story.id;
-    const evidenceCache = await db.kvGet(cacheKey, null) || {};
-    const before = JSON.stringify(evidenceCache);
-    const ctx = buildExtraContext(story, {
-      evidenceCache,
+    return buildExtraContext(story, {
       chapters, anchorNo: chapters.length, recentN: x.recentN, pinned: x.pinned || [],
       template: { name: x.tplName, text: x.tplText, scope: x.tplScope, layout:x.layout }, variant:x.variant, cast:x.cast, request, scope: x.scope, pov: x.pov,
       length: x.length, modules, base, path, historyPath, atLiveHead: x.anchorId === story.headId, budgetChars,
     });
-    if (before !== JSON.stringify(evidenceCache)) await db.kvSet(cacheKey, evidenceCache).catch(() => {});
-    return ctx;
   }
 
   let jobs = 0;
@@ -423,17 +417,6 @@ async function renderReader(root, story, nodes, extraId) {
     const conn = resuming ? saved?.connection : await extraConnection(v?.connectionId || x.connectionId);
     if (!conn) { toast('这篇番外的 API 未选择或已被删除，请点右上角选择番外 API'); return; }
     const ctx = resuming && v?.context ? v.context : await buildCtx(v?.request ?? x.request, inputBudgetChars(conn));
-    if (!resuming && (x.anchorNo > 0 || x.anchorId) && !ctx.info.hasCanon) {
-      const action = await menu('这个时间点没有找到可用的剧情素材', [
-        { key: 'back', label: '返回番外册', hint: '可重选视角或时间点。尚未请求模型。' },
-        { key: 'write', label: '仍按设定创作', hint: '本次只有设定和你的要求可供参考。' },
-      ]);
-      if (destroyed || action !== 'write') {
-        delete x.pending; await save();
-        if (!destroyed && action === 'back') go('extra/' + encodeURIComponent(story.id));
-        return;
-      }
-    }
     if (!resuming && v) v.context = ctx; // 旧番外重写、续写也重建时间点素材。
     let base = stripReasoning(saved?.base,{streaming:true});
     const continuation = resuming ? saved.mode === 'continue' : mode === 'continue';

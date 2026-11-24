@@ -44,17 +44,6 @@ test('第十章番外取此前完整合格记忆，排除第十一章事实、�
   assert.ok(!ctx.system.includes('未来新角色'));
 });
 
-test('角色视角只用确认知情的记忆；不把未知知情者或原文里的私密场景塞给角色', () => {
-  const { story, opts } = fixture();
-  const ctx = buildExtraContext(story, { ...opts, scope: 'char' });
-  assert.ok(ctx.system.includes('甲知道停电原因'));
-  assert.ok(ctx.system.includes('公开看到速写本'));
-  assert.ok(!ctx.system.includes('乙独自知道戒指'));
-  assert.ok(!ctx.system.includes('房间密码'));
-  assert.ok(!ctx.system.includes('【时间点前最近原文】'));
-  assert.deepEqual(ctx.info.chapters, []);
-});
-
 test('按时间点快照取旧累计栏目，删除的旧事项不会从更早档案复活', () => {
   const old = { ...emptyMemory(), upTo: 8, threads: ['已解决的旧事项'] };
   const current = { ...emptyMemory(), upTo: 10, threads: ['仍未解决的新事项'] };
@@ -64,45 +53,19 @@ test('按时间点快照取旧累计栏目，删除的旧事项不会从更早�
   assert.deepEqual(recordsAt(path, 8).map((r) => r.event), ['已解决的旧事项']);
 });
 
-test('公开和角色视角隔离混写的卡片，全知在同一时间点保留秘密', () => {
-  const {story,opts}=fixture();
-  story.cards[0].base='私密底稿：红章藏在阁楼。';
-  story.cards[0].publicProfile='常穿蓝外套，说话很慢。';
-  story.protagonist.note='她独自藏起第二把钥匙。';
-  story.protagonist.publicProfile='留齐肩短发。';
-  story.world='幕后设定：有人伪造了账册。';
+test('论坛和角色视角都能参考普通正文和旧记忆，同时遵守所选章节', () => {
+  const {story,opts} = fixture();
   for (const scope of ['public','char','all']) {
-    const {system}=buildExtraContext(story,{...opts,scope});
-    assert.match(system,/常穿蓝外套/); assert.match(system,/齐肩短发/);
-    for (const detail of ['红章藏在阁楼','第二把钥匙','伪造了账册']) assert.equal(system.includes(detail),scope==='all');
-    assert.equal(system.includes('甲知道停电原因'),scope!=='public');
-    assert.equal(system.includes('乙独自知道戒指秘密'),scope==='all');
-    assert.ok(!system.includes('第十一章才交往'));
+    const ctx = buildExtraContext(story,{...opts,scope});
+    assert.match(ctx.system,/日常相处/);
+    assert.match(ctx.system,/房间密码/);
+    assert.match(ctx.system,/朋友/);
+    assert.ok(ctx.info.chapters.includes(2));
+    assert.doesNotMatch(ctx.system,/第十一章才|未来新角色/);
+    const guide = ctx.info.parts.find(p=>p.label==='知情范围').text;
+    if (scope==='public') assert.match(guide,/旁人能看到或听说/);
+    if (scope==='char') assert.match(guide,/以甲的视角写/);
   }
-});
-
-test('旧档无知情标记时从同一分支按出处取材，修改原文后丢弃旧缓存', () => {
-  const {story, opts} = fixture();
-  const cp = { upTo: 2, summaries: [{from: 1, to: 2, text: '晚会上公开宣布画展开幕。'}] };
-  ensureStructured(cp, 'a2');
-  const chapters = [
-    {id:'a1', no:1, text:'甲对顾律说：“暗号是栀子。”\n乙亲耳听到真实底价。'},
-    {id:'a2', no:2, text:'主持人当众宣布明日闭馆。\n甲想：“明天再说。晚会上公开宣布假消息。”'},
-    {id:'a3', no:3, text:'主持人公开宣布未来结果。'},
-  ];
-  const cache = {};
-  const build = scope => buildExtraContext(story, {...opts, chapters, path:[], historyPath:[{checkpoint:cp}],
-    anchorNo:2, scope, pov:'顾律', evidenceCache:cache});
-  const pub = build('public');
-  assert.match(pub.system,/公开可见】晚会上公开宣布画展开幕/);
-  assert.match(pub.system,/明日闭馆/);
-  assert.doesNotMatch(pub.system,/栀子|真实底价|假消息|未来结果/);
-  assert.equal(pub.info.hasCanon,true);
-  const personal = build('char');
-  assert.match(personal.system,/仅顾律可用】甲对顾律说/);
-  assert.doesNotMatch(personal.system,/真实底价|假消息|未来结果/);
-  chapters[1].text = '主持人当众宣布推迟闭馆。';
-  assert.doesNotMatch(build('public').system,/明日闭馆/);
 });
 
 test('全知番外能够按要求从尚未整理的早期原文找回事件', () => {
@@ -111,14 +74,4 @@ test('全知番外能够按要求从尚未整理的早期原文找回事件', ()
   const ctx=buildExtraContext(story,{...opts,chapters,path:[],historyPath:[],scope:'all',request:'玻璃风铃',recentN:2});
   assert.deepEqual(ctx.info.excerptChapters,[3]);
   assert.match(ctx.system,/那天河边的玻璃风铃碎了/);
-});
-
-test('相邻进场和私聊可在角色视角复用，切场与公开视角不接收', () => {
-  const {story,opts}=fixture();
-  const cache={};
-  const build=(scope,sep='')=>buildExtraContext(story,{...opts,scope,pov:'顾律',path:[],historyPath:[],evidenceCache:cache,chapters:[{no:1,id:'x',text:'顾律推门进来。\n'+sep+'甲对她说：“钥匙在花盆里。”'}]});
-  assert.match(build('char').system,/钥匙在花盆里/);
-  assert.match(build('char').system,/钥匙在花盆里/);
-  assert.doesNotMatch(build('public').system,/钥匙在花盆里/);
-  assert.doesNotMatch(build('char','第二天。\n').system,/钥匙在花盆里/);
 });

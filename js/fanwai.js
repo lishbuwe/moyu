@@ -6,7 +6,6 @@ import { uid } from './util.js';
 import { forContext, parseReply } from './parse.js';
 import { cardText, splitNames, protagonistText } from './prompt.js';
 import { recallPassages } from './recall.js';
-import { evidenceRecords } from './extra-evidence.js';
 import { layeredMemory, recordsAt } from './structured-memory.js';
 import { EMPHASIS_GUIDE } from './inline.js';
 import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
@@ -108,41 +107,20 @@ export function buildExtraContext(story, opts) {
   const recent = recentN > 0 ? upto.slice(-recentN) : [];
   const pinnedSet = new Set(pinned.filter((no) => no <= anchorNo));
   const layout = layoutOf(template);
-  const rawAllowed = scope === 'all';
-  const snapshotChapters = layout && rawAllowed ? upto.slice(-3) : [];
-  // 知情范围不明的原文可能含有另一人的私密场景，严格视角下只使用带知情者的记忆。
+  const snapshotChapters = layout ? upto.slice(-3) : [];
   const nodeById = new Map((opts.path || []).map(n => [n.id, n]));
   const older = upto.filter(c => !recent.includes(c) && !pinnedSet.has(c.no) && !snapshotChapters.includes(c));
-  const passages = rawAllowed && older.length ? recallPassages(
+  const passages = older.length ? recallPassages(
     older.map(c => ({ ...c, node: nodeById.get(c.id) || c })), [], c => c.text,
     { query: request, context: upto.at(-1)?.title || '', people: castNames(opts.cast), changedScene: true, recentN: 0 }
   ) : [];
-  const picked = rawAllowed ? upto.filter((c) => pinnedSet.has(c.no) || recent.includes(c) || snapshotChapters.includes(c)) : [];
+  const picked = upto.filter((c) => pinnedSet.has(c.no) || recent.includes(c) || snapshotChapters.includes(c));
   const materialOf = (c) => `【第${c.no}章${c.title ? ' · ' + c.title : ''}】\n${c.said ? '（主角：' + c.said.trim() + '）\n' : ''}${c.text}`;
   const recentMaterial = picked.filter((c) => !pinnedSet.has(c.no)).map(materialOf).join('\n\n');
   const pinnedMaterial = picked.filter((c) => pinnedSet.has(c.no)).map(materialOf).join('\n\n');
   const material = [recentMaterial, pinnedMaterial].filter(Boolean).join('\n\n');
-  const observer = layout === 'report' ? opts.cast?.reporter : layout === 'chat' ? opts.cast?.owner : null;
-  const readers = [pov || observer?.name || (!layout ? opts.cast?.owner?.name : '')];
-  if (scope === 'char' && layout === 'show') readers.push(story.protagonist?.name, ...(opts.cast?.companions || []).map(c => c.name));
-  if (scope === 'char' && !readers.some(Boolean) && layout !== 'fic') readers.push(story.protagonist?.name);
   const history = recordsAt(opts.historyPath || opts.path || [], anchorNo);
-  const visible = r => scope === 'all' || r.knowers?.includes('公开') ||
-    (scope === 'char' && readers.some(name => name && r.knowers?.includes(name)));
-  let eligible = history.filter(visible);
-  if (!rawAllowed) {
-    const sources = [
-      ...history.filter(r => !r.knowers?.length).map(r => ({ id:r.id, from:r.sourceFrom, to:r.sourceTo, text:r.event })),
-      ...upto.map(c => ({ id:c.id, from:c.no, to:c.no, text:c.text, chapter:true, pinned:pinnedSet.has(c.no) })),
-    ];
-    const known = new Set(eligible.map(r => r.event));
-    for (const r of evidenceRecords(sources, [...readers, story.protagonist?.name, ...(story.cards || []).filter(c => !c.auto?.from || c.auto.from <= anchorNo).map(c => c.name)], opts.evidenceCache).filter(visible)) {
-      if (!known.has(r.event)) { eligible.push(r); known.add(r.event); }
-    }
-    eligible = eligible.map(r => ({ ...r, event: (r.knowers.includes('公开') ? '【公开可见】' :
-      '【仅' + r.knowers.filter(name => readers.includes(name)).join('、') + '可用】') + r.event }));
-  }
-  const memory = layeredMemory({ upTo: anchorNo, records: eligible }, [request, pov, castNames(opts.cast).join(' '), ...upto.slice(-2).map((c) => c.title)].join(' '),
+  const memory = layeredMemory({ upTo: anchorNo, records: history }, [request, pov, castNames(opts.cast).join(' '), ...upto.slice(-2).map((c) => c.title)].join(' '),
     { at: anchorNo, coreChars: 1800, stateChars: 700, retrieveChars: 3500 });
 
   // 角色卡：常驻的、视角角色、素材里被提到的
@@ -177,8 +155,7 @@ export function buildExtraContext(story, opts) {
     add('剧情快照材料', '【自动附带的剧情快照材料】\n'+
       '角色档案使用下方主角与角色卡，关系阶段、最近3件具体事件及未回收细节从下方最近章节提取；没有依据的口头禅、癖好与底线不补成事实。语气依据人设和本次要求选择。\n'+
       (snapshotChapters.length ? snapshotChapters.map(c => `事件来源 第${c.no}章（${c.id}）：${c.title || '未命名'}，主角当轮行动：${c.said || '无'}；具体事件见下方本章原文。`).join('\n')
-        : rawAllowed ? '正史还未开始，没有可评分的历史事件。报告应标记资料不足，其他玩法可依据人设原创非正史小事。'
-          : '本篇按知情范围只带明确可知的记忆；不要根据未发送的原文推断私密事件。资料不足就说明。'));
+        : '正史还未开始，没有可评分的历史事件。报告应标记资料不足，其他玩法可依据人设原创非正史小事。'));
     add('材料排版', LAYOUT_GUIDE);
     if (PLAYBOOK_UPDATES[layout] && !template?.text?.includes(PLAYBOOK_UPDATES[layout])) add('当前玩法要求', PLAYBOOK_UPDATES[layout]);
     if (PLAYBOOK_RELATIONS[layout] && !template?.text?.includes(PLAYBOOK_RELATIONS[layout])) add('人物关系与材料整合',PLAYBOOK_RELATIONS[layout]);
@@ -186,17 +163,13 @@ export function buildExtraContext(story, opts) {
     if (opts.variant) add('本次子类', '【本次玩法选择】\n' + opts.variant + '\n未指定的维度自行变化；指定子类不限制框架内的自由扩展。');
   }
   add(`形式 · ${template?.name || '自定义'}`, '【这篇的形式与写法】\n' + (template?.text?.trim() || '按下面玩家的要求来写。'));
-  add('知情范围', '【知情范围】\n' + scopeText);
-  if (!rawAllowed) add('分段知情范围', '公开帖子、评论、路人发言只能引用标注公开可见的事实。标注姓名的事实只供该人亲历、回忆或私聊时使用，其他人不能凭空得知。' +
-    (scope === 'char' && readers.filter(Boolean).length ? '本次有知情素材的视角范围：' + readers.filter(Boolean).join('、') + '。' : ''));
+  add('知情范围', '【知情范围】\n' + scopeText + (scope === 'all' ? '' : ' 正史和人设供作者理解前因后果。落到每个人的台词和行动时，依照此人在场所见、听闻和自身立场来写。'));
   for (const m of modules) add(`规则模块 · ${m.name}`, `【规则模块·${m.name}】\n${m.text.trim()}`);
-  add('世界设定', rawAllowed && story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '');
-  const p = story.protagonist || {};
-  const protagonist = rawAllowed ? story : { protagonist: { name: p.name, gender: p.gender, publicProfile: p.publicProfile } };
-  add('主角', protagonistText(protagonist, opts.path || []));
+  add('世界设定', story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '');
+  add('主角', protagonistText(story, opts.path || []));
   if (memory.core) add('截至时间点的核心记忆', '【截至时间点已确认的核心记忆】\n' + memory.core);
   if (memory.state) add('当时的状态', '【当时未决事项和物品】\n' + memory.state);
-  for (const c of cards) add(`角色卡 · ${c.name}`, cardText(rawAllowed ? asOfCard(c) : { name: c.name, publicProfile: c.publicProfile }));
+  for (const c of cards) add(`角色卡 · ${c.name}`, cardText(asOfCard(c)));
   if (memory.recalled) add('历史记忆检索', '【从此前全部合格记忆召回】\n' + memory.recalled);
   add('时间点', anchorNo > 0
     ? `【时间点】这篇番外发生在正史第 ${anchorNo} 章之后。第 ${anchorNo} 章之后的正史还没有发生，不要写到。`
@@ -232,7 +205,7 @@ export function buildExtraContext(story, opts) {
     system,
     messages: [{ role: 'user', content: user }],
     info: { parts: parts.map((p) => ({ label: p.label, chars: p.text.length, text: p.text })), totalChars: system.length + user.length, budgetChars: budget,
-      chapters: picked.map((c) => c.no), excerptChapters: parts.includes(excerpts) ? passages.map(h => h.chapter.no) : [], hasCanon: !!(parts.includes(excerpts) || picked.length || memory.core || memory.state || recall?.text), memoryHits: memory.hits.filter((hit,i) => recall?.text.includes(memory.records.recalled[i].event)), coreOmitted: memory.coreOmitted, cards: cards.map((c) => c.name), scope, layout, snapshotChapters: rawAllowed ? snapshotChapters.map(c=>c.no) : [], variant: opts.variant || '', cast:opts.cast || null },
+      chapters: picked.map((c) => c.no), excerptChapters: parts.includes(excerpts) ? passages.map(h => h.chapter.no) : [], hasCanon: !!(parts.includes(excerpts) || picked.length || memory.core || memory.state || recall?.text), memoryHits: memory.hits.filter((hit,i) => recall?.text.includes(memory.records.recalled[i].event)), coreOmitted: memory.coreOmitted, cards: cards.map((c) => c.name), scope, layout, snapshotChapters: snapshotChapters.map(c=>c.no), variant: opts.variant || '', cast:opts.cast || null },
   };
 }
 

@@ -1057,18 +1057,27 @@ test('出戏后可以沿用正文选项或把问答转入讨论', async () => {
   } finally { dispose(); }
 });
 
-test('受限视角没有素材时在真实发送前等待选择，返回时不产生模型请求或空版本', async () => {
-  const {story}=await seedStory();
-  const extra={id:'no-evidence',storyId:story.id,request:'来一篇论坛帖',scope:'public',tplName:'论坛体',
-    anchorId:'a1',anchorNo:1,pending:true,versions:[],cur:0,connectionId:'qa-conn'};
-  await db.put('extras', extra);
+test('第30章的论坛体直接发送普通剧情，无需公开标记或二次确认', async () => {
+  const {story,nodes} = await seedStory();
+  let parentId = nodes.at(-1).id;
+  for (let i=2;i<=31;i++) {
+    const id='a'+i;
+    await db.put('nodes',{id,parentId,storyId:story.id,role:'assistant',kind:'play',status:'done',text:'第'+i+'次彩排落幕。'});
+    parentId=id;
+  }
+  story.headId=parentId; await db.put('stories',story);
+  const extra={id:'ordinary-forum',storyId:story.id,request:'来一篇论坛帖',scope:'public',tplName:'论坛体',
+    anchorId:'a30',anchorNo:30,pending:true,versions:[],cur:0,connectionId:'qa-conn'};
+  await db.put('extras',extra);
   const dispose=await extras.render(root,{id:story.id,extraId:extra.id});
   try {
-    const back=()=>[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('返回番外册'));
-    await wait(back); assert.equal(requests.length,0); back().click();
-    await wait(()=>!dispose.busy());
-    assert.equal(requests.length,0);
-    assert.equal((await db.get('extras',extra.id)).versions.length,0);
+    await wait(()=>requests.length===1 && !dispose.busy());
+    const prompt=JSON.stringify(requests[0].body.messages);
+    assert.match(prompt,/第30次彩排落幕/);
+    assert.doesNotMatch(prompt,/第31次彩排落幕/);
+    const saved=await db.get('extras',extra.id);
+    assert.equal(saved.versions.length,1);
+    assert.ok(saved.versions[0].text.trim());
   } finally {dispose();}
 });
 
