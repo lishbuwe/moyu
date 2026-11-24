@@ -86,3 +86,26 @@ test('明确标注analysis通道的兼容数据不当正文，final通道正常�
   mock(t,async()=>new Response(data.map(j=>'data: '+JSON.stringify(j)+'\n\n').join(''),{headers:{'Content-Type':'text/event-stream'}}));
   const r=await streamChat(conn,{});assert.equal(r.text,'最终正文');
 });
+
+test('读取接口返回的独立思考字段，开关不改变网络请求或正文',async t=>{
+  const sent=[];
+  mock(t,async(url,init)=>{
+    sent.push(init.body);
+    return new Response(JSON.stringify({choices:[{message:{reasoning_content:'摘要内容',content:'最终文本'},finish_reason:'stop'}]}),{headers:{'Content-Type':'application/json'}});
+  });
+  const opts={messages:[{role:'user',content:'开始'}]};
+  const off=await streamChat({...conn,stream:false},opts);
+  const on=await streamChat({...conn,stream:false},{...opts,collectThought:true});
+  assert.equal(off.thought,undefined);
+  assert.equal(on.thought,'摘要内容');
+  assert.equal(on.text,'最终文本');
+  assert.equal(sent[0],sent[1]);
+});
+
+test('Vertex兼容流按顺序收集返回字段，没有返回时明确为空',async t=>{
+  let field='摘要';
+  mock(t,async()=>new Response(['甲','乙'].map(s=>'data: '+JSON.stringify({choices:[{delta:field?{reasoning_content:field+s}:{}}]})+'\n\n').join('')+events(['正文']),{headers:{'Content-Type':'text/event-stream'}}));
+  const result=await streamChat(conn,{collectThought:true});
+  assert.equal(result.thought,'摘要甲摘要乙'); assert.equal(result.text,'正文');
+  field='';assert.equal((await streamChat(conn,{collectThought:true})).thought,'');
+});

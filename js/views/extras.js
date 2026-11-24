@@ -1,7 +1,7 @@
 // 墨游 · 番外册：列表、新建、阅读与重写
 
 import { db } from '../db.js';
-import { el, uid, toast, menu, sheet, promptText, ago, approxTokens } from '../util.js';
+import { thoughtPanel, el, uid, toast, menu, sheet, promptText, ago, approxTokens } from '../util.js';
 import { getConnections, connLabel, getModules, go, setCurrentStory, watchStory, PLAY_KEYS, getPrefs } from '../state.js';
 import { inlineText } from '../inline.js';
 import { streamWithRetry, ApiError, guessFormat } from '../api.js';
@@ -288,6 +288,7 @@ async function renderReader(root, story, nodes, extraId) {
     } else if (live) {
       g.append(el('div', { class: 'thinking', style: { marginTop: '14px' }, text: v?.thinking ? '模型思考中' : '正在构思' }));
     }
+    if (!live && getPrefs().showThought && typeof v?.returnedThought === 'string') content.append(thoughtPanel(v.returnedThought));
     content.append(g);
     if (!live && v) {
       if (v.stopped && v.text?.trim()) content.append(el('div', { class: 'note', text: '已停止，这篇没写完。' }));
@@ -451,7 +452,7 @@ async function renderReader(root, story, nodes, extraId) {
         hint: `目前约 ${totalChars.toLocaleString()} 字，预算 ${inputBudgetChars(conn).toLocaleString()} 字。已先削减检索细节；请减少手选章节、角色卡或提高连接的输入预算。`,
       });
       const r = await streamWithRetry(conn, {
-        system: ctx.system, messages, signal: ctrl.signal, maxTokens: Number(conn.maxTokens) || Math.min(8000, Math.ceil(lengthOf(x.length)[1] * 2) + 1500),
+        collectThought: !!getPrefs().showThought, system: ctx.system, messages, signal: ctrl.signal, maxTokens: Number(conn.maxTokens) || Math.min(8000, Math.ceil(lengthOf(x.length)[1] * 2) + 1500),
         resumeJob, relayServer: saved?.server || '',
         onJob: async (jobId, server) => {
           v.relayJob = jobId;
@@ -469,6 +470,8 @@ async function renderReader(root, story, nodes, extraId) {
         },
         onThinking: () => { if (!v.thinking && !v.text) { v.thinking = true; draw(); } },
       }, { onConnPatch: (p) => { if (conn) { Object.assign(conn, p); db.put('connections', { ...conn }).catch(() => {}); } } });
+      if (typeof r.thought === 'string') v.returnedThought = r.thought;
+      else delete v.returnedThought;
       v.text = resuming && previousText.length > base.length + r.text.length ? previousText : base + r.text;
       v.status = r.truncated ? 'partial' : 'done';
       usageRaw = r.usage || null;

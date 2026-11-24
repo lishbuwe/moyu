@@ -8,7 +8,7 @@ import { FORMAT_LABEL, normalizeUrl, guessFormat, testConnection, listModels } f
 import { parseServiceAccount, VERTEX_MODELS } from '../vertex.js';
 import { getRelay, saveRelay, testRelay } from '../relay.js';
 import { DEFAULT_RULES } from '../prompt.js';
-import { getMonthSpend, getBudget, setBudget, fmtTokens, CUR, priceLabel } from '../cost.js';
+import { getUsageLog, getMonthSpend, getBudget, setBudget, fmtTokens, CUR, priceLabel } from '../cost.js';
 import { getTemplates, saveTemplates, getBase, saveBase, DEFAULT_BASE, builtinTemplates, newTemplate, SCOPES } from '../fanwai.js';
 import { getPacks, deleteGlobalPack, KIND_LABEL } from '../tavern.js';
 import { importFlow } from './packs-ui.js';
@@ -72,7 +72,6 @@ export async function render(root, { section }) {
     const defId = await getDefaultConnId();
 
     // ── 连接 ──
-    wrap.append(el("a", { href: "./blind.html" }, "正文盲测"));
     wrap.append(el('div', { class: 'section-title', text: 'API 连接' }));
     if (!conns.length) wrap.append(el('div', { class: 'card hint', style: { marginTop: 0 }, text: '还没有连接。点下面添加：需要接口地址、密钥和模型名。' }));
     for (const c of conns) {
@@ -221,12 +220,15 @@ export async function render(root, { section }) {
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '关键词加粗与强调色'), sw(p.emphasis !== false, (v) => setPrefs({ emphasis: v }))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '台词柔和配色'), sw(p.dialogueTint !== false, (v) => { setPrefs({ dialogueTint: v }); refreshColors(); })),
       colors.box,
+      el('div', {class:'switch-row'}, el('div',{class:'lbl'},'显示模型返回的思考内容',el('small',{text:'正文和番外生成完成后可展开查看。'})), sw(!!p.showThought, v=>setPrefs({showThought:v}))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '按网名固定弹幕颜色'), sw(!!p.danmuNameColors, (v) => setPrefs({danmuNameColors:v}))),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '弹幕默认展开'), sw(p.danmuOpen, (v) => setPrefs({ danmuOpen: v })))
     ));
 
     // ── 花费 ──
     const month = await getMonthSpend();
+    const calls = await getUsageLog();
+    const hits = calls.filter(call => call.cached > 0);
     const budget = await getBudget();
     const bAmt = el('input', { type: 'number', min: '0', step: '1', placeholder: '不提醒', style: { flex: 1 } }); bAmt.value = budget.amount ?? '';
     const bCur = el('select', { style: { width: '110px', flex: 'none' } }); bCur.append(el('option', { value: 'CNY' }, '¥'), el('option', { value: 'USD' }, '$')); bCur.value = budget.currency || 'CNY';
@@ -235,6 +237,7 @@ export async function render(root, { section }) {
     wrap.append(el('div', { class: 'card' },
       el('div', { style: { fontWeight: '600' } }, `本月 ${spent}`),
       el('div', { class: 'hint', style: { marginTop: '2px' } }, `共 ${month.count} 次调用 · 输入 ${fmtTokens(month.input)} · 输出 ${fmtTokens(month.output)} token。金额按各连接设的价格估算（按次或按 token）；每一笔明细在游玩页“⋯ → 花费”。`),
+      calls.length ? el('div', {class:'hint',text:`最近 ${calls.length} 次有记录的调用中，${hits.length} 次命中缓存，共 ${fmtTokens(hits.reduce((sum,call)=>sum+call.cached,0))} token。`}) : null,
       el('div', { class: 'field', style: { marginTop: '12px', marginBottom: '8px' } }, el('label', { text: '每月提醒线（超过后每天提醒一次）' }),
         el('div', { class: 'row', style: { flexWrap: 'nowrap' } }, bAmt, bCur)),
       el('button', { class: 'btn small primary', onclick: async () => { await setBudget({ amount: bAmt.value === '' ? '' : Number(bAmt.value), currency: bCur.value }); toast('提醒线已保存'); } }, '保存提醒线')

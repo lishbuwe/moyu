@@ -541,3 +541,14 @@ a { color: var(--accent); }
 .reading-swatch[aria-pressed="true"] { outline: 2px solid var(--text); }
 .reading-palette input[type="color"] { width: 48px; height: 32px; padding: 2px; }
 .reading-sample { font: var(--read-size)/1.8 var(--read-font); background: var(--bg); padding: 8px; }
+
+.thought-panel { margin: .6em 0; color: var(--text2); font: 14px/1.65 var(--ui-font); }
+.thought-panel > div { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .5em; }
+.play-scroll .gm:not(.ooc) > p :is(strong, .text-highlight) { color: var(--read-dialogue, var(--dialogue)); }
+.play-scroll { background: var(--bg2); }
+.play-scroll .feed {
+  min-height: 100%;
+  background-color: var(--bg);
+  background-image: linear-gradient(90deg, rgba(92,65,36,.065), transparent 12px);
+  box-shadow: inset 1px 0 var(--line), inset -1px 0 var(--line), 0 0 14px rgba(34,26,20,.07);
+}

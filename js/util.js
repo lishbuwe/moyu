@@ -1,9 +1,14 @@
 // 墨游 · 小工具
 
-export const APP_VERSION = '0.6.16.48';
+export const APP_VERSION = '0.6.16.49';
 
 export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+export function thoughtPanel(text) {
+  if (text === '') return el('div',{class:'hint',text:'本次未收到可展示的思考内容'});
+  return el('details',{class:'thought-panel'},el('summary',{text:'查看思考内容'}),el('div',{text}));
 }
 
 export function esc(s) {

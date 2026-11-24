@@ -1540,3 +1540,20 @@ test('列出旧连接不会改写用户的输出上限', async () => {
   assert.equal((await getConnections()).find(c=>c.id===old.id).maxTokens,4000);
   assert.deepEqual(await db.get('connections',old.id),old);
 });
+
+test('打开思考显示后可在正文展开接口的摘要，下一轮发送的历史只有正文',async()=>{
+  const {setPrefs}=await import('../js/state.js');
+  const {story}=await seedStory();await setPrefs({showThought:true});
+  const dispose=await play.render(root,{id:story.id});
+  try {
+    const sent=[];
+    globalThis.fetch=async(url,init)=>{sent.push(init.body);return new Response(JSON.stringify({choices:[{message:{reasoning_content:'独立摘要文本',content:'# 第一场\n\n她推开窗。'},finish_reason:'stop'}]}),{headers:{'Content-Type':'application/json'}});};
+    for(const line of ['推门。','走出去。']){
+      const expected=sent.length+1;
+      root.querySelector('textarea').value=line;button('发送').click();
+      await wait(()=>sent.length===expected && !dispose.busy() && root.querySelector('.thought-panel'));
+    }
+    assert.equal(sent.length,2);assert.ok(!sent[1].includes('独立摘要文本'));
+    assert.ok(root.querySelector('.thought-panel').textContent.includes('独立摘要文本'));
+  } finally {dispose();await setPrefs({showThought:false});}
+});

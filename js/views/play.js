@@ -1,7 +1,7 @@
 // 墨游 · 游玩页
 
 import { db, exportStory } from '../db.js';
-import { el, uid, toast, menu, promptText, sheet, saveFile, autoGrow, insertAtCursor, approxTokens } from '../util.js';
+import { thoughtPanel, el, uid, toast, menu, promptText, sheet, saveFile, autoGrow, insertAtCursor, approxTokens } from '../util.js';
 import { resolveConnection, getConnections, connLabel, getPrefs, go, getModules, setCurrentStory, getGlobalMemo, watchStory } from '../state.js';
 import { streamWithRetry, ApiError } from '../api.js';
 import { cancelRelayJob } from '../relay.js';
@@ -247,6 +247,7 @@ export async function render(root, { id }) {
     const live = st.streaming?.id === n.id;
     const picking = st.pick === n.id;
     const wrap = el('div', { class: 'turn', 'data-id': n.id });
+    if (!live && getPrefs().showThought && typeof n.returnedThought === 'string') wrap.append(thoughtPanel(n.returnedThought));
     if (n.kind === 'ooc') {
       const box = el('div', { class: 'gm ooc' });
       for (const p of paragraphs(n.text)) box.append(el('p', {}, inlineText(p, getPrefs().emphasis !== false, getPrefs().dialogueTint !== false)));
@@ -580,7 +581,7 @@ export async function render(root, { id }) {
         });
       }
       const r = await streamWithRetry(conn, {
-        system: ctx.system, cachePrefix: ctx.cachePrefix, messages: ctx.messages, signal: ctrl.signal,
+        collectThought: !!getPrefs().showThought, system: ctx.system, cachePrefix: ctx.cachePrefix, messages: ctx.messages, signal: ctrl.signal,
         onCacheCreate: (data) => {
           const n = Number(data.usageMetadata?.totalTokenCount) || 0;
           if (n) return recordUsage({ kind: '缓存创建', storyId: story.id, model: conn.model,
@@ -609,6 +610,8 @@ export async function render(root, { id }) {
         onRetry: (e) => toast(`${e.message}，自动重试中…`),
         onConnPatch: (p) => { if (conn) { Object.assign(conn, p); db.put('connections', { ...conn }).catch(() => {}); } },
       });
+      if (typeof r.thought === 'string') a.returnedThought = r.thought;
+      else delete a.returnedThought;
       a.text = base + r.text;
       if (!resumeJob && freshRecall.length) a.recallRefs = freshRecall;
       a.status = r.truncated || r.interrupted ? 'partial' : 'done';

@@ -245,17 +245,27 @@ function responseUsage(j) {
     cached_content_token_count: u.cachedContentTokenCount ?? 0 } : null;
 }
 
-function parseNonStream(format, j) {
+function returnedThought(message) {
+  if (!message) return '';
+  const field = message.reasoning_content || message.reasoning;
+  if (typeof field === 'string' && field) return field;
+  if (Array.isArray(message.content)) return message.content
+    .filter(block => ['thinking','reasoning','reasoning_content'].includes(block?.type))
+    .map(block => block.thinking || block.text || '').join('');
+  return '';
+}
+
+function parseNonStream(format, j, collect) {
   if (j && j.error) throw streamError(j, '');
   if (format === 'anthropic') {
     const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     const thinking = (j.content || []).some((b) => b.type === 'thinking');
-    return { text, finish: j.stop_reason, usage: responseUsage(j), thinking };
+    return { text, finish: j.stop_reason, usage: responseUsage(j), thinking, thought: collect ? returnedThought(j) : '' };
   }
   const ch = j.choices?.[0];
   const internal=['analysis','reasoning','thinking'].includes(ch?.message?.channel);
   const text = internal?'':partsText(ch?.message?.content);
-  return { text, finish: ch?.finish_reason, usage: responseUsage(j), thinking: internal || !!(ch?.message?.reasoning_content || ch?.message?.reasoning) };
+  return { text, finish: ch?.finish_reason, usage: responseUsage(j), thought: collect ? returnedThought(ch?.message) : '', thinking: internal || !!(ch?.message?.reasoning_content || ch?.message?.reasoning) };
 }
 
 // ───────────── 发请求 ─────────────
@@ -299,7 +309,7 @@ export async function streamChat(conn, opts = {}) {
     throw e;
   }
 }
-async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', maxTokens, signal, onText = () => {}, onThinking = () => {}, onCacheCreate, onJob, resumeJob = null, relayServer = '', direct = false, firstByteMs = 150000, idleMs = 90000 }) {
+async function streamChatRaw(conn, { collectThought = false, system, messages = [], cachePrefix = '', maxTokens, signal, onText = () => {}, onThinking = () => {}, onCacheCreate, onJob, resumeJob = null, relayServer = '', direct = false, firstByteMs = 150000, idleMs = 90000 }) {
   const originalConn = conn;
   if (!resumeJob) { checkConn(conn); conn = await effectiveConn(conn); }
   const format = guessFormat(conn);
@@ -320,6 +330,7 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
   let interrupted = false;
   let usage = null;
   let sawThinking = false;
+  let thought = '';
   const fail = (e) => { if (e instanceof ApiError && !e.partial) e.partial = text; return e; };
   const abortedErr = () => (timedOut
     ? new ApiError(viaRelay ? 'relay_network' : 'timeout', '长时间没有响应', { hint: viaRelay ? '服务器仍会继续生成，回到前台或点“接回后台生成”可重新获取。' : '网络太慢或接口卡住了。已收到的部分会保留，可以续写或重试。', partial: text, url })
@@ -353,7 +364,8 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
       const raw = await res.text();
       let j;
       try { j = JSON.parse(raw); } catch { throw new ApiError('badresp', '接口返回的内容看不懂', { url, detail: raw.slice(0, 800), hint: '可能是地址填错了，或者中转站出了问题。' }); }
-      const r = parseNonStream(format, j);
+      const r = parseNonStream(format, j, collectThought);
+      thought = r.thought;
       text = r.text || '';
       finish = r.finish; usage = r.usage; sawThinking = r.thinking;
       if (text) onText(text, text);
@@ -376,9 +388,10 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
         if (format === 'anthropic') {
           if (j.type === 'content_block_delta') {
             if (j.delta?.type === 'text_delta' && j.delta.text) { text += j.delta.text; onText(j.delta.text, text); }
-            else if (j.delta?.type === 'thinking_delta') { sawThinking = true; onThinking(); }
+            else if (j.delta?.type === 'thinking_delta') { sawThinking = true; onThinking(); if (collectThought) thought += j.delta.thinking || ''; }
           } else if (j.type === 'content_block_start' && j.content_block?.type === 'thinking') {
             sawThinking = true; onThinking();
+            if (collectThought) thought += j.content_block.thinking || '';
           } else if (j.type === 'message_delta') {
             if (j.delta?.stop_reason) finish = j.delta.stop_reason;
             if (j.usage) usage = { ...(usage || {}), ...j.usage };
@@ -398,6 +411,7 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
         if (ch) {
           const delta = ch.delta || ch.message || {};
           const internal=['analysis','reasoning','thinking'].includes(delta.channel);
+          if (collectThought) thought += returnedThought(delta);
           const piece = internal?'':partsText(delta.content);
           if (piece) { text += piece; onText(piece, text); }
           if (internal || delta.reasoning_content || delta.reasoning) { sawThinking = true; onThinking(); }
@@ -424,7 +438,8 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
       if (!sawData && rawHead.trim()) {
         // 声称流式、实际一次性返回 JSON 的接口
         try {
-          const r = parseNonStream(format, JSON.parse(rawHead));
+          const r = parseNonStream(format, JSON.parse(rawHead), collectThought);
+          thought = r.thought;
           text = r.text || ''; finish = r.finish; usage = r.usage; sawThinking = r.thinking;
           if (text) onText(text, text);
         } catch (e) {
@@ -449,6 +464,7 @@ async function streamChatRaw(conn, { system, messages = [], cachePrefix = '', ma
     text,
     finish,
     usage,
+    ...(collectThought && {thought}),
     truncated: /^(length|max_tokens|max_output_tokens)$/i.test(f),
     interrupted,
     flagged: /content_filter|refusal|safety/i.test(f),
