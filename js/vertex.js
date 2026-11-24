@@ -21,7 +21,7 @@ export function parseServiceAccount(text) {
   return j;
 }
 
-export function isServiceAccountJson(text) {
+function isServiceAccountJson(text) {
   try { parseServiceAccount(text); return true; } catch { return false; }
 }
 
@@ -39,7 +39,7 @@ async function importKey(pem) {
 const tokens = new Map(); // client_email|key id → { token, exp }
 
 /** 拿访问令牌（有效期内复用，快过期时重新换） */
-export async function getAccessToken(sa, signal) {
+async function getAccessToken(sa, signal) {
   const k = sa.client_email + '|' + (sa.private_key_id || '');
   const hit = tokens.get(k);
   const now = Math.floor(Date.now() / 1000);

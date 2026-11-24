@@ -137,7 +137,7 @@ const words = (s) => [...new Set((clean(s).toLowerCase().match(/[\p{Script=Han}]
 
 const factKey = text => clean(text).normalize('NFKC').replace(/\s+/gu, '').replace(/[。.!！]+$/u, '');
 
-export function retrieveRecords(records, query, { at = Infinity, scope = 'all', pov = '', limitChars = 4000, omit = [], requireMatch = false } = {}) {
+function retrieveRecords(records, query, { at = Infinity, scope = 'all', pov = '', limitChars = 4000, omit = [], requireMatch = false } = {}) {
   const terms = words(query);
   const excluded = new Set(omit.map((x) => x.id));
   const eligible = records.filter((r) => r.sourceTo <= at && (r.invalidatedAt == null || r.invalidatedAt > at) && !excluded.has(r.id) && (

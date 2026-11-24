@@ -25,7 +25,7 @@ async function inflateRaw(u8) {
 }
 
 /** 最小的 ZIP 读取：只认“不压缩”和“deflate”两种（绝大多数 ZIP 都是这两种） */
-export async function unzip(buf) {
+async function unzip(buf) {
   const u8 = new Uint8Array(buf);
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   let eocd = -1;
@@ -59,7 +59,7 @@ export async function unzip(buf) {
 }
 
 /** PNG 里的文字块（酒馆角色卡把 JSON 用 base64 存在 chara / ccv3 里） */
-export async function pngText(u8) {
+async function pngText(u8) {
   if (u8.length < 8 || ![137,80,78,71,13,10,26,10].every((b, i) => u8[i] === b)) return null;
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   const out = {};
@@ -160,7 +160,7 @@ export const KIND_LABEL = { preset: '预设', worldbook: '世界书', card: '角
 // ───────────── 转成墨游的东西 ─────────────
 
 /** 酒馆的宏：{{user}} {{char}} 换成墨游的说法；注释、trim、变量操作去掉 */
-export function cleanMacros(text, { char = '角色', user = '主角' } = {}) {
+function cleanMacros(text, { char = '角色', user = '主角' } = {}) {
   return String(text || '')
     .replace(/\{\{\/\/[\s\S]*?\}\}/g, '')
     .replace(/\{\{(?:trim|noop)\}\}/gi, '')
@@ -177,7 +177,7 @@ const shortName = (s, n = 40) => String(s || '').replace(/\s+/g, ' ').trim().sli
 const nameOf = (file) => String(file || '').split('/').pop().replace(/\.(json|png)$/i, '');
 
 /** 预设：每条提示词一个模块；按预设里的顺序；记下预设里原本开没开 */
-export function presetToModules(j, pack) {
+function presetToModules(j, pack) {
   const prompts = Array.isArray(j.prompts) ? j.prompts : [];
   const orders = Array.isArray(j.prompt_order) ? j.prompt_order : [];
   const ord = (orders.find((o) => String(o.character_id) === '100001') || orders.find((o) => Array.isArray(o.order) && o.order.length) || {}).order || [];
@@ -204,7 +204,7 @@ export function presetToModules(j, pack) {
 }
 
 /** 世界书：每个条目一个模块；常驻的“一直发送”，有关键词的“出现关键词时发送” */
-export function worldbookToModules(wb, pack, ctx) {
+function worldbookToModules(wb, pack, ctx) {
   const raw = Array.isArray(wb.entries) ? wb.entries : Object.values(wb.entries || {});
   const entries = raw.filter(Boolean).sort((a, b) => (a.order ?? a.insertion_order ?? 0) - (b.order ?? b.insertion_order ?? 0));
   const mods = [];
@@ -227,7 +227,7 @@ export function worldbookToModules(wb, pack, ctx) {
 }
 
 /** 角色卡（v1 / v2 / v3）统一成一个对象 */
-export function readChara(j) {
+function readChara(j) {
   const d = j.spec || (j.data && j.data.name) ? (j.data || {}) : j;
   const entries = Array.isArray(d.character_book?.entries) ? d.character_book.entries : Object.values(d.character_book?.entries || {});
   return {
@@ -372,6 +372,6 @@ export function deleteStoryPack(story, id) {
 }
 
 /** 这个故事能用的全部模块：全局模块库 + 自己导入的 */
-export function storyModules(story, globalMods = []) {
+function storyModules(story, globalMods = []) {
   return [...globalMods, ...(story?.localModules || [])];
 }

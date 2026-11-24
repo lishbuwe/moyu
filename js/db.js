@@ -5,7 +5,7 @@ import { toast } from './util.js';
 import { DB_NAME } from './personal.js';
 
 const DB_VER = 2;
-export const SCHEMA = 1; // 存档格式版本，以后升级格式时据此迁移
+const SCHEMA = 1; // 存档格式版本，以后升级格式时据此迁移
 
 let dbPromise = null;
 

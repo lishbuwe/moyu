@@ -66,7 +66,7 @@ export function normalizeUrl(format, base, conn = null) {
   return u + '/chat/completions';
 }
 
-export function modelsUrl(format, base) {
+function modelsUrl(format, base) {
   const u = normalizeUrl(format, base);
   return format === 'anthropic' ? u.replace(/\/messages$/i, '/models') : u.replace(/\/chat\/completions$/i, '/models');
 }

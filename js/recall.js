@@ -2,7 +2,7 @@ import {searchWords} from './search-terms.js';
 // 旧正文检索在本机完成。只对当前分支上的正文建立索引。
 const indexes = new WeakMap();
 const stop = new Set('我们 你们 他们 她们 什么 一个 这个 那个 这样 那样 不是 没有 有点 一下 一眼 一会 看着 说道 说着 之后 的时候 自己 继续 我想 他说 她说 以前 之前 当时 当初 记得 后来'.split(' '));
-export const HOLD_ROUNDS = 3;
+const HOLD_ROUNDS = 3;
 const MAX_HITS = 3;
 
 function terms(text) {

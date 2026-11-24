@@ -2,7 +2,7 @@ import { uid } from './util.js';
 import { readTavernFile, detectKind } from './tavern.js';
 
 const LIMIT = 20 * 1024 * 1024;
-export function bytesToBase64(bytes) {
+function bytesToBase64(bytes) {
   let text = ''; for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(text);
 }
@@ -11,7 +11,7 @@ export function attachmentBytes(attachment) {
 }
 const valueText = value => typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value, null, 2);
 const entriesOf = value => Array.isArray(value) ? value : Object.values(value || {});
-export function cardSections(json) {
+function cardSections(json) {
   const kind = detectKind(json), d = json.data || json, sections = [];
   const add = (key, name, value) => { const text = valueText(value).trim(); if (text) sections.push({ key, name, text, selected: true }); };
   if (kind === 'card') {

@@ -103,7 +103,7 @@ export function chatMessages(d) {
 // ───── 整理成修改 ─────
 const CARD_FIELDS = { initial: '初始设定', base: '底色', voice: '原话锚', forbid: '禁止清单', now: '当前状态', arc: '变化轨迹', relation: '关系档案' };
 const MEM_FIELDS = { corrections: '勘误', irreversible: '不可逆的事', threads: '未决事项与暗线', knowledge: '信息差', items: '物品与信物', offscreen: '暗处动向' };
-export const TARGET_LABEL = { world: '世界设定', opening: '开场', rules: '规则', card: '角色卡', newcard: '新角色卡', memory: '前情档案', newstory: '新故事' };
+const TARGET_LABEL = { world: '世界设定', opening: '开场', rules: '规则', card: '角色卡', newcard: '新角色卡', memory: '前情档案', newstory: '新故事' };
 
 export function changesPrompt(d) {
   const story = !!d.storyId;

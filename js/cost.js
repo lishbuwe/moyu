@@ -71,13 +71,13 @@ export function fmtTokens(n) {
   return String(n);
 }
 
-export function monthKey(ts = Date.now()) {
+function monthKey(ts = Date.now()) {
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 /** 记一笔账，返回本月合计 { CNY, USD, input, output, count } */
-export async function addSpend(cost, usage) {
+async function addSpend(cost, usage) {
   const all = (await db.kvGet('spend', null)) || {};
   const k = monthKey();
   const m = all[k] || { CNY: 0, USD: 0, input: 0, output: 0, count: 0 };
@@ -128,7 +128,7 @@ export async function getBudget() {
 export async function setBudget(b) { return db.kvSet('budget', b); }
 
 /** 本月花费超过提醒额度时，每天提醒一次 */
-export async function checkBudget(month) {
+async function checkBudget(month) {
   const b = await getBudget();
   const limit = num(b.amount);
   if (limit == null || limit <= 0) return;

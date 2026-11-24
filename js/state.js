@@ -5,7 +5,7 @@ import { db } from './db.js';
 import { DEFAULT_RULES } from './prompt.js';
 import { CURRENT_STORY_KEY } from './personal.js';
 
-export const DEFAULT_PREFS = { fontSize: 17, font: 'serif', indent: true, danmuOpen: true, bodyColor:'', dialogueColor:'', dialogueTint:true };
+const DEFAULT_PREFS = { fontSize: 17, font: 'serif', indent: true, danmuOpen: true, bodyColor:'', dialogueColor:'', dialogueTint:true };
 let prefs = { ...DEFAULT_PREFS };
 
 export async function loadPrefs() {
@@ -19,7 +19,7 @@ export async function setPrefs(patch) {
   applyPrefs();
   await db.kvSet('prefs', prefs);
 }
-export function applyPrefs() {
+function applyPrefs() {
   const r = document.documentElement;
   applyReadingColors(r,prefs);
   r.style.setProperty('--read-size', prefs.fontSize + 'px');

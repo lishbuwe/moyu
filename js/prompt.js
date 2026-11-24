@@ -87,7 +87,7 @@ export function protagonistText(story, path = []) {
   return '【主角（玩家扮演的“你”）】\n' + lines.join('\n') + '\n叙述中的姓名和人称按这里来；角色在对白中的称呼，随双方已发生的互动和当前场合自然变化。';
 }
 
-export function arcForPrompt(arc, {keep=3, maxChars=700}={}) {
+function arcForPrompt(arc, {keep=3, maxChars=700}={}) {
   const rows=(arc || '').split('\n').map(t=>t.trim()).filter(Boolean);
   const head=rows[0]?.startsWith('【整体走向】') ? rows.shift() : '';
   const tail=rows.slice(-keep);
@@ -119,7 +119,7 @@ function mentioned(text, card) {
 }
 
 /** 用来判断“谁在场 / 哪个关键词出现了”的文字：本轮输入、导演指令、最近两条回复 */
-export function scanText(path, extra = '') {
+function scanText(path, extra = '') {
   const users = path.filter((n) => n.role === 'user');
   const replies = path.filter((n) => n.role === 'assistant' && n.kind !== 'ooc' && n.text);
   const u = users[users.length - 1];
@@ -151,13 +151,13 @@ export function selectExtras(story, path, modules = [], extra = '') {
 
 /** 末尾提醒：在场角色的禁止清单，放在最后一条玩家消息里（离模型“下笔”最近） */
 /** 每轮最后一句的格式提醒：规则很长时模型容易忘了写弹幕和选项 */
-export function formatTail(story) {
+function formatTail(story) {
   const want = [story.danmu !== false ? '【弹幕】' : '', story.options !== false ? '【选项】' : ''].filter(Boolean);
   if (!want.length) return '';
   return `\n\n（格式提醒：正文写完后依次写${want.join('和')}，不要省略。）`;
 }
 
-export function tailReminder(present, { maxEach = 5 } = {}) {
+function tailReminder(present, { maxEach = 5 } = {}) {
   const rows = present.filter((c) => c.forbid?.trim()).map((c) => `- ${c.name}：${lines(c.forbid).slice(-maxEach).map((l) => l.replace(/^[-*•·]\s*/, '')).join('；')}`);
   if (!rows.length) return '';
   return '\n\n【在场角色提醒·玩家场外设置，不要在正文里提到】\n' + rows.join('\n');

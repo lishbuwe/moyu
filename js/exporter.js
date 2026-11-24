@@ -25,7 +25,7 @@ function youText(u) {
  * opts: { danmu, options, extras, setting, memory, ooc }
  * 返回一个普通对象，可以直接 JSON.stringify
  */
-export async function buildTranscript(storyId, opts = {}) {
+async function buildTranscript(storyId, opts = {}) {
   const o = { danmu: false, options: false, extras: true, setting: true, memory: false, ooc: false, ...opts };
   const story = await db.get('stories', storyId);
   if (!story) throw new Error('找不到这个故事');
@@ -78,7 +78,7 @@ export async function buildTranscript(storyId, opts = {}) {
 }
 
 /** 纯文本版：方便直接看 */
-export function transcriptToText(t) {
+function transcriptToText(t) {
   const L = [`《${t.title}》`, ''];
   if (t.setting) {
     if (t.setting.world) L.push('【世界与角色设定】', t.setting.world, '');
