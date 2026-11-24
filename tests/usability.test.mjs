@@ -1427,3 +1427,16 @@ test('讨论写入失败时返回原因并继续导入其他数据', async () =>
   assert.ok(await db.get('stories','other'));
   assert.ok(await db.get('connections','late'));
 });
+
+test('整包模式预算不足时先删最早消息，保留最后回复原文', () => {
+  const story = {memoryMode:'full', cards:[]};
+  const path = Array.from({length:4}, (_,i)=>[
+    {id:'u'+i, role:'user', text:'提问'+i+'文'.repeat(100)},
+    {id:'a'+i, role:'assistant',text:'# 进展'+i+'\n正文。'+options},
+  ]).flat();
+  const full = buildContext(story,path);
+  const ctx = buildContext(story,path,{budgetChars:full.info.totalChars-50});
+  assert.equal(ctx.info.trimmed,1);
+  assert.deepEqual(ctx.messages.slice(1),full.messages.slice(1));
+  assert.equal(ctx.messages.at(-1).content,path.at(-1).text);
+});

@@ -440,9 +440,8 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
     continuityInfo = { kept: keptChapters, excerpts: [...new Set(quotes.map((x) => x.chapter))], omitted, sceneOmitted, automatic };
   }
   if (!continuity && fixedSize() > budgetChars) {
-    messages = kept.map(n=>message(n)).filter(m=>m.role==='user' || m.content);
     const protectedIndex = Math.max(0,recentStart - path.indexOf(recentPath[0]));
-    const removable = recentPath.slice(0,protectedIndex).filter(n=>kept.includes(n) && (n.role==='user' || message(n).content)).length;
+    const removable = recentPath.slice(0,protectedIndex).filter(n=>kept.includes(n) && (n.role==='user' || message(n, rawSet.has(n.id)).content)).length;
     while (trimmed < removable && fixedSize() > budgetChars) {
       messages.shift();
       trimmed++;
