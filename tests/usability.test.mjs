@@ -1419,3 +1419,11 @@ test('各个昵称色相在当前深浅纸面上对比度至少为4.5',()=>{
     }
   }
 });
+
+test('讨论写入失败时返回原因并继续导入其他数据', async () => {
+  const discussion = Object.freeze({id:'frozen',messages:[]});
+  const result = await importData({app:'moyu', stories:[{id:'other'}], discussions:[discussion], connections:[{id:'late'}]});
+  assert.match(result.discussionsError,/updatedAt/);
+  assert.ok(await db.get('stories','other'));
+  assert.ok(await db.get('connections','late'));
+});

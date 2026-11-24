@@ -258,7 +258,7 @@ export async function render(root, { section }) {
             if (!confirm('导入后，同一个故事会被备份里的版本覆盖。继续？')) return;
             try {
               const r = await importData(data);
-              toast(`已导入 ${r.stories} 个故事${r.connections ? `、${r.connections} 个连接（需要重新填密钥）` : ''}`);
+              toast(`已导入 ${r.stories} 个故事${r.connections ? `、${r.connections} 个连接（需要重新填密钥）` : ''}` + (r.discussionsError ? '。讨论记录未能导入：'+r.discussionsError : ''), r.discussionsError ? 6000 : 2500);
               draw();
             } catch (e) { toast('导入失败：' + e.message, 4000); }
           },

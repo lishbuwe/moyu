@@ -306,7 +306,11 @@ export async function importData(data) {
   if (Array.isArray(data.fwTemplates) && !(await db.kvGet('fwTemplates', null))) await db.kvSet('fwTemplates', data.fwTemplates);
   if (data.fwBase && !(await db.kvGet('fwBase', null))) await db.kvSet('fwBase', data.fwBase);
   if (data.globalMemo && !(await db.kvGet('globalMemo', null))) await db.kvSet('globalMemo', data.globalMemo);
-  if (Array.isArray(data.discussions)) { try { await (await import('./discuss.js')).importDiscussions(data.discussions); } catch {} }
+  let discussionsError = '';
+  if (Array.isArray(data.discussions)) {
+    try { await (await import('./discuss.js')).importDiscussions(data.discussions); }
+    catch (error) { discussionsError = error?.message || String(error); }
+  }
   let addedConn = 0;
   if (Array.isArray(data.connections)) {
     const existing = new Set((await db.all('connections')).map((c) => c.id));
@@ -314,5 +318,5 @@ export async function importData(data) {
     if (fresh.length) { await db.putMany('connections', fresh); addedConn = fresh.length; }
   }
   if (data.defaultRules && !(await db.kvGet('defaultRules', null))) await db.kvSet('defaultRules', data.defaultRules);
-  return { stories: stories.length, nodes: nodes.length, extras: extras.length, connections: addedConn };
+  return { stories: stories.length, nodes: nodes.length, extras: extras.length, connections: addedConn, ...(discussionsError && {discussionsError}) };
 }
