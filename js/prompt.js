@@ -45,7 +45,7 @@ export function userContent(node, { withDirector = false } = {}) {
   } else if (node.kind === 'ooc') {
     c = '（出戏）' + (node.text || '');
   } else {
-    c = (node.kind === 'play' && !node.inputFormat ? '【旧版输入】\n' : '') + (node.text || '');
+    c = node.text || '';
   }
   if (withDirector && node.director?.trim()) c += directorBlock(node.director);
   return c;

@@ -6,7 +6,7 @@ import { buildContext, formatContract, inputBudgetChars } from '../js/prompt.js'
 import { selectExtras } from '../js/prompt.js';
 import { APP_VERSION } from '../js/util.js';
 
-test('旧输入沿用旧约定，新输入原样发送，本局的选项数优先', () => {
+test('新旧输入都原样发送，本局的选项数优先', () => {
   const rules = '旧设定：括号外是台词。每轮给两个参考选项。';
   const path = [
     { role: 'user', kind: 'play', text: '（收好信）我跟你走。' },
@@ -16,7 +16,7 @@ test('旧输入沿用旧约定，新输入原样发送，本局的选项数优�
   const ctx = buildContext({ rules, danmu: false }, path);
   assert.ok(ctx.system.includes(rules));
   assert.match(ctx.system, /只有双引号/);
-  assert.match(ctx.messages[0].content, /^【旧版输入】\n（收好信）我跟你走。/);
+  assert.equal(ctx.messages[0].content, '（收好信）我跟你走。');
   assert.match(ctx.messages.at(-1).content, /^收好伞。“一起走吧。”/);
   assert.match(ctx.system, /按本局对参考选项数量的约定/);
   assert.doesNotMatch(ctx.system + ctx.messages.at(-1).content, /A\/B\/C\/D|四行|4个方向/);
