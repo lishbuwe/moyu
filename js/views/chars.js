@@ -203,7 +203,7 @@ export async function render(root, { id }) {
           check.checked = change.valid && !change.conflict; change.selected = check.checked; checks.push(check);
           results.append(el('div', { class: 'card' }, el('label', {}, check, PROTAGONIST_FIELDS[change.field], change.conflict ? ' · 与已有内容冲突，请核对' : ''),
             change.previous ? el('div', { class: 'hint', text: '原有：' + change.previous }) : null,
-            el('div', { text: '建议：' + change.value }),
+            el('textarea', { 'aria-label': PROTAGONIST_FIELDS[change.field]+'建议', oninput:e => { change.value = e.target.value.trim(); } }, change.value),
             el('div', { class: 'hint', text: change.valid ? change.evidence.map(e => `${e.label}：“${e.quote}”`).join('\n') : '未找到可核验的原文依据，不可保存' })));
         }
         save.disabled = !changes.some(c => c.valid);
@@ -216,7 +216,7 @@ export async function render(root, { id }) {
       try {
         const latest = await loadStoryState(story.id);
         if (latest.story.headId !== reviewedHead || !latest.path.some(n => n.id === anchor)) throw new Error('剧情或当前分支已变化，请重新整理');
-        latest.story.protagonist = applyProtagonistChanges(latest.story.protagonist || {}, changes.filter(c => c.selected), anchor);
+        latest.story.protagonist = applyProtagonistChanges(latest.story.protagonist || {}, changes.filter(c => c.selected && c.value), anchor);
         await db.put('stories', latest.story); story.protagonist = latest.story.protagonist;
         for (const node of latest.path) nodes.set(node.id, node);
         story.headId = latest.story.headId; s.close(); draw(); toast('主角当前状态已更新');
@@ -244,6 +244,13 @@ export async function render(root, { id }) {
     const note = el('textarea', { class: 'tall', placeholder: '身份、外貌、性格、别人怎么称呼你……第三人称番外会照这个写' }); note.value = p.note || '';
     const profile = el('textarea', { placeholder: '从开局起旁人就能观察到的外貌、说话习惯等' });
     profile.value = p.publicProfile || '';
+    const path = pathTo(nodes, story.headId);
+    const anchor = path.filter(n => n.role === 'assistant' && n.kind !== 'ooc').at(-1)?.id;
+    const current = protagonistState(p, path);
+    const fields = !incoming && anchor ? Object.entries(PROTAGONIST_FIELDS).map(([field,label]) => {
+      const input = el('textarea', {'aria-label':label}, current[field]?.value || '');
+      return {field,input,row:el('div',{class:'field'},el('label',{text:label}),input)};
+    }) : [];
     const genderHint = el('div', { class: 'hint', text: '正文、番外、整理前情、讨论每次都会带上这张卡。' });
     const aiStatus = el('div', { class: 'hint' });
     const aiBtn = el('button', { class: 'btn small', onclick: () => aiFill() }, '从设定补充初始资料');
@@ -254,7 +261,7 @@ export async function render(root, { id }) {
       el('div', { class: 'field' }, el('label', { text: '名字' }), name),
       el('div', { class: 'field' }, el('label', { text: '性别' }), gender, genderHint),
       el('div', { class: 'field' }, el('label', { text: '其他' }), note),
-      el('div', { class: 'field' }, el('label', { text: '公开资料（可选）' }), profile));
+      el('div', { class: 'field' }, el('label', { text: '公开资料（可选）' }), profile), ...fields.map(f=>f.row));
 
     // AI 写草稿：名字、其他直接填进框里（你可以改）；性别只给建议，由你自己选
     async function aiFill() {
@@ -298,6 +305,9 @@ export async function render(root, { id }) {
           const fresh = await db.get('stories', id);
           if (!fresh) throw new Error('找不到这个故事');
           fresh.protagonist = { ...fresh.protagonist, name: name.value.trim(), gender: gender.value, note: note.value.trim(), publicProfile: profile.value.trim() };
+          const edits = fields.filter(({field,input}) => input.value.trim() !== (current[field]?.value || ''));
+          if (edits.length) fresh.protagonist = applyProtagonistChanges(fresh.protagonist,
+            edits.map(({field,input}) => ({field,value:input.value.trim(),valid:true})), anchor);
           fresh.updatedAt = Date.now();
           await db.put('stories', fresh);
           story.protagonist = fresh.protagonist;
@@ -336,6 +346,11 @@ export async function render(root, { id }) {
     story.cards = e.detail.cards;
     db.byStory(id).then((ns) => { nodes.clear(); ns.forEach((n) => nodes.set(n.id, n)); draw(); }).catch(() => draw());
   };
+  const onCheckpoint = e => {
+    const node = nodes.get(e.detail?.nodeId);
+    if (e.detail?.storyId === id && node) { node.checkpoint = e.detail.mem; draw(); }
+  };
+  window.addEventListener('moyu:checkpoint', onCheckpoint);
   window.addEventListener('moyu:cards', onCards);
   const unwatch = watchStory(story, null, PLAY_KEYS);
 
@@ -533,5 +548,5 @@ export async function render(root, { id }) {
   }
 
   draw();
-  return () => { window.removeEventListener('moyu:cards', onCards); unwatch(); };
+  return () => { window.removeEventListener('moyu:checkpoint', onCheckpoint); window.removeEventListener('moyu:cards', onCards); unwatch(); };
 }

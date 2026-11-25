@@ -1,10 +1,21 @@
 export const PROTAGONIST_FIELDS = { identity: '当前身份', abilities: '能力与资源', status: '当前状态', relations: '关系变化' };
 
 export function protagonistState(protagonist = {}, path = []) {
-  const allowed = new Set(path.map(n => n.id));
-  const state = {};
+  const edits = new Map();
   for (const entry of protagonist.stateEntries || []) {
-    if (allowed.has(entry.sourceNodeId) && PROTAGONIST_FIELDS[entry.field]) state[entry.field] = entry;
+    if (!Object.hasOwn(PROTAGONIST_FIELDS, entry.field)) continue;
+    if (!edits.has(entry.sourceNodeId)) edits.set(entry.sourceNodeId, []);
+    edits.get(entry.sourceNodeId).push(entry);
+  }
+  const state = {};
+  for (const node of path) {
+    for (const [field, value] of Object.entries(node.checkpoint?.protagonistChanges || {})) {
+      if (Object.hasOwn(PROTAGONIST_FIELDS, field) && typeof value === 'string') state[field] = {field, value, sourceNodeId:node.id};
+    }
+    for (const entry of edits.get(node.id) || []) {
+      if (entry.value) state[entry.field] = entry;
+      else delete state[entry.field];
+    }
   }
   return state;
 }

@@ -1,6 +1,7 @@
 // 墨游 · 存档员：把新发生的剧情整理进前情档案
 // 档案挂在某一章的回复节点上（node.checkpoint）。回退、开分支时，自动用当前这条线上最近的那份。
 
+import { PROTAGONIST_FIELDS } from './protagonist.js';
 import { db } from './db.js';
 import { memoryRequest } from './memory-request.js';
 import { latestCheckpoint, inputBudgetChars, memoryText, applyCardState, splitNames, protagonistText } from './prompt.js';
@@ -67,7 +68,7 @@ function arcParts(arc) {
   return {early:rows.slice(0,split).join('\n'),recent:rows.slice(split).join('\n')};
 }
 
-export function archivistPrompt(story, prev, batch) {
+export function archivistPrompt(story, prev, batch, path = [], syncProtagonist = true) {
   const cards = (story.cards || []).filter((c) => c.name?.trim()).map((c) => {
     const s = applyCardState(c, prev);
     const arc = arcParts(s.arc);
@@ -102,7 +103,7 @@ export function archivistPrompt(story, prev, batch) {
     system: '你是这部文字互动小说的存档员。把新发生的剧情整理进前情档案：只记正文里确实发生的事，不脑补、不美化、不写感想；拿不准的放进“unsure”。只输出一个 JSON 对象，不要任何说明，也不要代码块标记。',
     user: [
       story.world?.trim() ? '【世界设定】\n' + story.world.trim().slice(0, 4000) : '',
-      protagonistText(story),
+      protagonistText(story, syncProtagonist ? path : []),
       cards ? '【角色卡（初始设定、原话、禁止清单这些不归你改；你只负责“当前状态”“变化轨迹”“关系档案”）】\n' + cards : '【角色卡】\n（还没有任何角色卡）',
       briefTargets.length ? '【补写旧核心事实简版】只处理下列 ID。保留否定、归属、时序与知情边界，40字内不能准确表达就留空。\n'+JSON.stringify(briefTargets) : '',
       '【已有的前情档案】\n' + prevText,
@@ -134,6 +135,8 @@ export function archivistPrompt(story, prev, batch) {
           now: '现在走到哪一步、对主角的立场、彼此怎么称呼',
           relation: '和主角的关系：相处梗、称呼、约定',
         }],
+        ...(syncProtagonist ? {protagonistChanges: Object.fromEntries(Object.entries(PROTAGONIST_FIELDS).map(([field,label]) =>
+          [field, label+'：仅本批剧情确有变化时填写更新后的完整内容，否则省略此项。保留仍有效的资料。']))} : {}),
         cards: { 角色名: { now:'当前称呼和对主角的立场。', brief:'当前关系与称呼的一句话，最多40字', arcAdd:'默认留空。称呼、立场、关系、身份或能力确实变化时才写：第N章，从X变成Y。', arcSummary:'仅对标为可压缩的早期轨迹写一句整体走向，最多200字；不能准确概括则空。', relation:'按人物分行，400字内写当前态度、动机与分寸。变化用已不再……表述。旧事件、道具和原话记录为事实。' } },
         conflicts: ['新剧情和已有设定或档案矛盾的地方（不要自己改，列出来给玩家裁决）'],
         unsure: ['拿不准的地方'],
@@ -283,7 +286,7 @@ async function runLocalArchivist(story,nodes,path,conn,opts) {
   const onProgress = opts.onProgress || (() => {});
   let pendingId;
   try {
-    const chapters = pendingChapters(path);
+    const chapters = {...pendingChapters(path), path};
     const first = chapters.pending[0];
     pendingId = first?.id;
     if (first && opts.automatic && !(await archiveRecovery(story.id, first.id))) {
@@ -299,7 +302,7 @@ async function runLocalArchivist(story,nodes,path,conn,opts) {
   }
 }
 
-async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onBatchStart, onProgress = () => {}, minChapters = 1 } = {}) {
+async function runInner(story, nodes, { cp, upTo, pending, path }, conn, { signal, onBatchStart, onProgress = () => {}, minChapters = 1 } = {}) {
   if (pending.length < minChapters) return { written: [], from: 0, to: 0 };
   let prev = cp ? cp.mem : emptyMemory();
   ensureStructured(prev, cp?.node.id || '');
@@ -322,10 +325,13 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
       throw Error('该批次属于另一条剧情分支，请回到原分支接回');
     }
     onBatchStart(batch[0].id);
-    let p = archivistPrompt(story, prev, batch);
+    const priorPath = path.slice(0, path.findIndex(node => node.id === batch[0].id)).map(node => nodes.get(node.id) || node);
+    const source = {...story, protagonist:(await db.get('stories',story.id))?.protagonist || story.protagonist};
+    const makePrompt = () => archivistPrompt(source, prev, batch, priorPath, !saved || saved.protagonistSync === true);
+    let p = makePrompt();
     while (!saved && p.system.length + p.user.length > budget && batch.length > 1) {
       batch.pop();
-      p = archivistPrompt(story, prev, batch);
+      p = makePrompt();
     }
     const from = batch[0].no;
     const to = batch[batch.length - 1].no;
@@ -334,7 +340,7 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
     const r = await memoryRequest(key, conn, {
       system: p.system, messages: [{ role: 'user', content: p.user }], maxTokens: 16000, signal,
       onText: (_d, full) => onProgress(`正在整理第 ${from}–${to} 章（已写 ${full.length} 字）`),
-    }, { ids: batch.map(c => c.id) });
+    }, { ids: batch.map(c => c.id), protagonistSync:true });
     const raw = r.text;
     if (!saved?.result) track(r, p.system.length + p.user.length);
     let j;
@@ -396,6 +402,7 @@ async function runInner(story, nodes, { cp, upTo, pending }, conn, { signal, onB
       if (record) { record.brief = update.brief.trim(); record.briefChecked = true; }
     }
     addEvents(m, j.memories, from, to, batch[batch.length - 1].id);
+    m.protagonistChanges = Object.fromEntries(Object.keys(PROTAGONIST_FIELDS).filter(field => typeof j.protagonistChanges?.[field] === 'string' && j.protagonistChanges[field].trim()).map(field => [field,j.protagonistChanges[field].trim()]));
     m.lastRun = { at: Date.now(), from, to, omitted:p.omitted, model: conn?.model || '', cost: costSum };
     const node = nodes.get(batch[batch.length - 1].id);
     if (!node) throw new Error(`无法保存第 ${to} 章，找不到章节节点`);

@@ -499,6 +499,28 @@ test('主角卡实际整理、审阅保存、撤销，正文上下文读取当�
   }finally{dispose();}
 });
 
+test('整理前情同步更新主角，手改结果只在所属分支生效',async()=>{
+  const {story,nodes}=await seedStory();
+  responses.push(JSON.stringify({summary:'主角入职',protagonistChanges:{identity:'职员',name:'错误改名'}}));
+  await runArchivist(story,new Map(nodes.map(n=>[n.id,n])),nodes,await db.get('connections','qa-conn'));
+  assert.equal(requests.length,1);
+  assert.equal(protagonistState(story.protagonist,nodes).identity.value,'职员');
+  const close=await chars.render(root,{id:story.id});
+  try {
+    button('编辑',root.querySelector('[data-name="主角"]')).click();
+    const dialog=document.querySelector('[role=dialog]');
+    const field=dialog.querySelector('[aria-label="当前身份"]');
+    assert.equal(field.value,'职员');field.value='见习设计师';
+    button('保存',dialog).click();await wait(()=>!dialog.isConnected);
+    const saved=await db.get('stories',story.id);
+    assert.equal(saved.protagonist.name,story.protagonist.name);
+    assert.equal(saved.protagonist.note,story.protagonist.note);
+    assert.equal(protagonistState(saved.protagonist,nodes).identity.value,'见习设计师');
+    assert.equal(protagonistState(saved.protagonist,nodes.slice(0,1)).identity,undefined);
+    assert.ok(buildContext(saved,nodes).system.includes('见习设计师'));
+  } finally {close();}
+});
+
 test('主角状态默认收起、可记住展开状态，编辑不会触发折叠或改变资料',async()=>{
   const {story}=await seedStory();
   story.protagonist.stateEntries=[{field:'status',value:'已经毕业，正在适应新工作。',sourceNodeId:'a1'}];
