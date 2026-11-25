@@ -5,7 +5,7 @@ import { computeCost, normalizeUsage, recordUsage } from '../cost.js';
 import { inputBudgetChars } from '../prompt.js';
 import { activeEdition, consolidationBatches, editorGuide, parseSuggestions } from '../consolidation.js';
 
-export async function openEdition(story, path, cp, conn, reload, { resumeOnly = false } = {}) {
+export async function openEdition(story, path, cp, conn, reload, { resumeOnly = false, host } = {}) {
   const anchor = path.at(-1).id;
   const key = 'memoryDraft.' + story.id + '.' + cp.node.id;
   async function fingerprint(value) {
@@ -23,7 +23,7 @@ export async function openEdition(story, path, cp, conn, reload, { resumeOnly = 
   if (resumeOnly && (!interrupted || interrupted.batch !== draft.done || !(interrupted.job || interrupted.result))) return;
   const edition = activeEdition(path);
   let ctrl, closed = false;
-  const panel = sheet({title:'整合已有记忆', onClose:() => { closed = true; document.removeEventListener('visibilitychange',recover); ctrl?.abort('leave'); }});
+  const panel = sheet({host,title:'整合已有记忆', onClose:() => { closed = true; document.removeEventListener('visibilitychange',recover); ctrl?.abort('leave'); }});
   const hint = el('div',{class:'hint'});
   const preview = el('div');
   panel.body.append(hint, preview);

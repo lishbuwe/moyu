@@ -18,6 +18,10 @@ let current = null;   // 正在显示的页面 { key, name, el, api }
 const parked = new Map();   // 切走时还在生成的页面：留在后台接着写，切回来接着看
 let routeToken = 0;
 
+function needsPage(entry) {
+  return entry?.api?.busy?.() || !!entry?.el.querySelector('.task-sheet');
+}
+
 function dispose(entry) {
   if (!entry) return;
   if (typeof entry.api === 'function') { try { entry.api(); } catch {} }
@@ -28,12 +32,12 @@ function dispose(entry) {
 function retire(entry) {
   if (!entry) return;
   const api = entry.api;
-  if (api && typeof api.busy === 'function' && api.busy()) {
+  if (needsPage(entry)) {
     entry.el.classList.add('parked');
     parked.set(entry.key, entry);
     entry.stopIdle?.();
-    entry.stopIdle = api.onIdle?.(() => {
-      if (parked.get(entry.key) === entry) { parked.delete(entry.key); dispose(entry); }
+    entry.stopIdle = api?.onIdle?.(() => {
+      if (!entry.el.querySelector('.task-sheet') && parked.get(entry.key) === entry) { parked.delete(entry.key); dispose(entry); }
       if (current) placeTabs(current.name);
     });
     return;
@@ -60,7 +64,7 @@ async function route() {
   if (params.id && ['play', 'chars', 'extra', 'memory', 'story'].includes(name)) setCurrentStory(params.id);
 
   // 同一页又跳一次（比如刷新自己）：正在生成就别重来
-  if (current && current.key === key && current.api?.busy?.()) { current.api.show?.(); return; }
+  if (current && current.key === key && needsPage(current)) { current.api?.show?.(); return; }
   // 后台还在写的那一页：直接拿回来
   if (parked.has(key)) {
     const entry = parked.get(key);
@@ -196,7 +200,7 @@ async function start() {
 let refreshing = false;
 window.addEventListener('moyu:refresh', async () => {
   if (refreshing) return;
-  if (current?.api?.busy?.() || [...parked.values()].some((entry) => entry.api?.busy?.())) {
+  if (needsPage(current) || [...parked.values()].some(needsPage)) {
     toast('正在生成内容，完成后再刷新'); return;
   }
   if (current?.el.querySelector('.composer textarea')?.value.trim()) {
@@ -226,7 +230,7 @@ window.addEventListener('moyu:refresh', async () => {
         }
       }
     }
-    if (current?.api?.busy?.() || [...parked.values()].some((entry) => entry.api?.busy?.()) ||
+    if (needsPage(current) || [...parked.values()].some(needsPage) ||
       current?.el.querySelector('.composer textarea')?.value.trim()) {
       refreshing = false;
       toast('有正在生成或未发送的内容，处理完成后再刷新', 4000); return;

@@ -552,3 +552,6 @@ a { color: var(--accent); }
   background-image: linear-gradient(90deg, rgba(92,65,36,.065), transparent 12px);
   box-shadow: inset 1px 0 var(--line), inset -1px 0 var(--line), 0 0 14px rgba(34,26,20,.07);
 }
+
+.view-host:not(.parked):has(.task-sheet) { position: relative; }
+.view-host .task-sheet { position: absolute; inset: 0; height: auto; }

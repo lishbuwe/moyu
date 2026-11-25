@@ -97,7 +97,7 @@ export async function render(root, { id }) {
     wrap.append(el('div', { class: 'card' },
       el('div', { class: 'row' }, runBtn, stop ? el('button', { class: 'btn small', onclick: () => stop.abort() }, '停止整理') : null,
         cp && !stop ? el('button', { class:'btn small', onclick:async () => {
-          try { await openEdition(story,path,cp,await archiveConn(story),async () => { showOriginal = false; await reload(); }); } catch (e) { toast(e.message); }
+          try { await openEdition(story,path,cp,await archiveConn(story),async () => { showOriginal = false; await reload(); }, {host:root}); } catch (e) { toast(e.message); }
         } }, '整合已有记忆') : null), status),
       el('details', {class:'card'}, el('summary',{text:'整理设置与更多操作'}),
         el('div',{class:'switch-row'}, el('label',{text:'自动整理间隔（章，0 为关闭）'}),every),
@@ -271,7 +271,7 @@ export async function render(root, { id }) {
   const initialPath = pathTo(nodes,story.headId);
   const initialCheckpoint = latestCheckpoint(initialPath);
   if (initialCheckpoint) void archiveConn(story).then(conn => {
-    if (!destroyed) return openEdition(story,initialPath,initialCheckpoint,conn,reload,{resumeOnly:true});
+    if (!destroyed) return openEdition(story,initialPath,initialCheckpoint,conn,reload,{resumeOnly:true,host:root});
   }).catch(e => { if (!destroyed) toast(e.message); });
   draw();
   // 离开这页不打断整理：它会在后台写完，游玩页会收到通知

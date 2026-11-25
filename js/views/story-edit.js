@@ -16,7 +16,7 @@ function switchRow(label, sub, checked) {
 }
 
 /** 打开设定编辑。返回保存后的故事；取消返回 null */
-export function openStoryEditor(existing, prefill = null) {
+export function openStoryEditor(existing, prefill = null, host) {
   return new Promise(async (resolve) => {
     let saved = null;
     const isNew = !existing;
@@ -30,7 +30,7 @@ export function openStoryEditor(existing, prefill = null) {
       if (prefill.rulesExtra?.trim()) story.rules = (story.rules || '').trim() + '\n\n' + prefill.rulesExtra.trim();
     }
     const conns = await getConnections();
-    const s = sheet({ title: isNew ? '新故事' : '故事设定', onClose: () => resolve(saved) });
+    const s = sheet({ host, title: isNew ? '新故事' : '故事设定', onClose: () => resolve(saved) });
 
     const title = el('input', { type: 'text', placeholder: '填写故事名' });
     title.value = story.title || '';

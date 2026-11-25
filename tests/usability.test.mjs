@@ -1596,3 +1596,42 @@ test('同人和报告多选可混用角色卡与手填姓名，实际请求保�
     } finally { end(); }
   }
 });
+
+test('回到讨论或角色页时重新订阅同一转发任务',async()=>{
+  const {pageRequest}=await import('../js/memory-request.js');
+  await db.kvSet('relay',{on:true,url:'https://relay.example',token:'virtual'});
+  const urls=[];
+  globalThis.fetch=async(url,init)=>{
+    urls.push(url);
+    if(url.endsWith('/jobs')) return Response.json({id:'testjob'});
+    if(url.includes('/stream?') && urls.length===2) {
+      return new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(new Error('reconnect')),{once:true}));
+    }
+    if(url.includes('/stream?'))return new Response(JSON.stringify({choices:[{message:{content:'接回结果'}}]}),{headers:{'X-Upstream-Status':'200','X-Upstream-Content-Type':'application/json','X-Job-State':'done'}});
+    return Response.json({state:'done'});
+  };
+  const result=pageRequest({...await db.get('connections','qa-conn'),viaRelay:true},{messages:[{role:'user',content:'开始'}]});
+  await wait(()=>urls.length===2);
+  document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal((await result).text,'接回结果');
+  assert.equal(urls.filter(u=>u.endsWith('/jobs')).length,1);
+});
+
+test('主角卡生成中切到讨论，返回仍能审阅同一份结果', async()=>{
+  const {story}=await seedStory();
+  root.id='app';window.history.replaceState(null,'','#/chars/'+story.id);
+  await import('../js/main.js');
+  await wait(()=>button('根据当前剧情更新'));
+  button('根据当前剧情更新').click();await wait(()=>button('读取剧情并生成建议'));
+  let finish;
+  globalThis.fetch=()=>new Promise(resolve=>{finish=()=>resolve(Response.json({choices:[{message:{content:JSON.stringify({changes:[]})}}]}));});
+  button('读取剧情并生成建议').click();await wait(()=>finish);
+  const dialog=root.querySelector('.task-sheet');
+  root.querySelector('[data-tab="discuss"]').click();
+  await wait(()=>dialog.closest('.parked'));
+  finish();await wait(()=>!button('读取剧情并生成建议',dialog).disabled);
+  root.querySelector('[data-tab="chars"]').click();
+  await wait(()=>!dialog.closest('.parked'));
+  assert.equal(root.querySelector('.task-sheet'),dialog);
+  button('取消',dialog).click();
+});

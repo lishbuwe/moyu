@@ -5,7 +5,8 @@ import { el, toast, sheet, menu, promptText, autoGrow, ago, pickRawFile } from '
 import { go, getConnections, resolveConnection, connLabel, getGlobalMemo, setGlobalMemo, getPrefs } from '../state.js';
 import { inlineText } from '../inline.js';
 import { stripReasoning } from '../reasoning.js';
-import { streamWithRetry, ApiError } from '../api.js';
+import { pageRequest } from '../memory-request.js';
+import { ApiError } from '../api.js';
 import { normalizeUsage, computeCost, fmtMoney, recordUsage } from '../cost.js';
 import { openStoryEditor } from './story-edit.js';
 import { readAttachment } from '../attachments.js';
@@ -111,7 +112,7 @@ async function renderChat(root, id) {
   const ta = el('textarea', { rows: 1, placeholder: '自由输入…' });
   const sendBtn = el('button', { class: 'send', onclick: () => (ctrl ? ctrl.abort() : onSend()) }, '发送');
   const chipChanges = el('button', { class: 'chip', onclick: () => makeChanges() }, '✍️ 整理成修改');
-  const chipNew = el('button', { class: 'chip', onclick: () => makeNewStory() }, '＋ 生成新故事');
+  const chipNew = el('button', { class: 'chip', onclick: () => { if (!jobs && !ctrl) onSendJob(makeNewStory); } }, '＋ 生成新故事');
   const chipCh = el('button', { class: 'chip', onclick: () => chooseChapters() });
   const composer = el('div', { class: 'composer' },
     pendingFiles,
@@ -177,7 +178,7 @@ async function renderChat(root, id) {
     sendBtn.textContent = '停止';
     sendBtn.classList.add('stop');
     try {
-      const r = await streamWithRetry(conn, { system, messages, maxTokens, signal: ctrl.signal, onText: (_, full) => onText && onText(full) });
+      const r = await pageRequest(conn, { system, messages, maxTokens, signal: ctrl.signal, onText: (_, full) => onText && onText(full) });
       const inChars = system.length + messages.reduce((a, m) => a + m.content.length, 0);
       const u = normalizeUsage(r.usage, { inChars, outChars: r.text.length });
       return { text: r.text, cost: computeCost(u, conn), usage: u };
@@ -192,8 +193,11 @@ async function renderChat(root, id) {
   const idleCbs = new Set();
   async function onSend() {
     if (ctrl || jobs) return;
+    return onSendJob(onSendInner);
+  }
+  async function onSendJob(action) {
     jobs++;
-    try { return await onSendInner(); }
+    try { return await action(); }
     finally { jobs--; if (!jobs) idleCbs.forEach((f) => { try { f(); } catch {} }); }
   }
   async function onSendInner() {
@@ -244,7 +248,7 @@ async function renderChat(root, id) {
   async function makeChanges() {
     if (ctrl) { toast('等这条回复写完再整理'); return; }
     if (!d.messages.some((m) => m.role === 'assistant' && m.content?.trim())) { toast('先聊几句再整理'); return; }
-    const s = sheet({ title: '整理成修改' });
+    const s = sheet({ host: root, title: '整理成修改' });
     const status = el('div', { class: 'hint', text: '正在整理…（只调用一次，量不大）' });
     s.body.append(status);
     s.foot.append(el('button', { class: 'btn ghost', onclick: () => { ctrl?.abort(); s.close(); } }, '取消'));
@@ -311,7 +315,7 @@ async function renderChat(root, id) {
         header();
         toast('已写回');
         if (newStory) {
-          const st = await openStoryEditor(null, newStory);
+          const st = await openStoryEditor(null, newStory, root);
           if (st) go('play/' + encodeURIComponent(st.id));
         }
       } catch (e) { toast('写回失败：' + (e?.message || e), 4000); applyBtn.disabled = false; }
@@ -330,7 +334,7 @@ async function renderChat(root, id) {
       const r = await callModel(system, msgs, 6000);
       recordUsage({ kind: '生成新故事', storyId: d.storyId, model: conn.model, usage: r.usage, cost: r.cost });
       const prefill = parseNewStory(r.text);
-      const st = await openStoryEditor(null, prefill);
+      const st = await openStoryEditor(null, prefill, root);
       if (st) go('play/' + encodeURIComponent(st.id));
     } catch (e) {
       if (!(e instanceof ApiError && e.kind === 'aborted') && e?.message !== 'no conn') toast('生成失败：' + (e?.message || e), 4000);

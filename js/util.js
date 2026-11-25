@@ -1,6 +1,6 @@
 // 墨游 · 小工具
 
-export const APP_VERSION = '0.6.16.52';
+export const APP_VERSION = '0.6.16.53';
 
 export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -64,7 +64,7 @@ export function approxTokens(chars) {
 }
 
 /** 底部弹出层。返回 { close, body, foot } */
-export function sheet({ title = '', onClose } = {}) {
+export function sheet({ title = '', onClose, host } = {}) {
   const body = el('div', { class: 'sb' });
   const foot = el('div', { class: 'sf' });
   const panel = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' },
@@ -76,7 +76,8 @@ export function sheet({ title = '', onClose } = {}) {
   );
   const backdrop = el('div', { class: 'sheet-backdrop' }, panel);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
-  document.body.append(backdrop);
+  if (host) backdrop.classList.add('task-sheet');
+  (host || document.body).append(backdrop);
   let closed = false;
   function close() {
     if (closed) return;
