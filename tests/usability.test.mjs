@@ -853,7 +853,7 @@ test('同人选择的是主角的关系对象，报告作者独立，不能把�
   const r=castText({version:3,protagonist,subject:target,reporter},'report');
   assert.ok(r.includes('看谁的恋爱脑报告】郁黎安'));assert.ok(r.includes('谁写报告】许秋'));assert.ok(r.includes('与林舟的关系'));
   const chat=castText({version:3,protagonist,owner:target},'chat');assert.ok(chat.includes('玩家主角始终是林舟'));assert.ok(chat.includes('各组会话来自同一位手机主人'));
-  const mixed=castText({version:3,protagonist,partner:{kind:'mixed'}},'fic');assert.ok(mixed.includes('各篇分别'));assert.ok(mixed.includes('不混成多人共同恋爱'));
+  const mixed=castText({version:3,protagonist,partner:{kind:'mixed'}},'fic');assert.ok(mixed.includes('由剧情选出多人'));assert.ok(mixed.includes('同一段多人恋爱关系'));
 });
 
 test('聊天用文字头像与窄气泡，混合材料仍归属于同一篇完整报告',async()=>{
@@ -1562,6 +1562,37 @@ test('打开思考显示后可在正文展开接口的摘要，下一轮发送�
       await wait(()=>sent.length===expected && !dispose.busy() && root.querySelector('.thought-panel'));
     }
     assert.equal(sent.length,2);assert.ok(!sent[1].includes('独立摘要文本'));
+    assert.ok(!sent[0].includes('不输出写作计划'));
     assert.ok(root.querySelector('.thought-panel').textContent.includes('独立摘要文本'));
   } finally {dispose();await setPrefs({showThought:false});}
+});
+
+test('同人和报告多选可混用角色卡与手填姓名，实际请求保留人物与作者', async () => {
+  const {story} = await seedStory();
+  story.cards = [{id:'p1', name:'角色甲', initial:'雨天开花店'}];
+  await db.put('stories', story);
+  for (const layout of ['fic','report']) {
+    const dialog = await openExtraForm(story, 'playbook-' + layout);
+    const field = dialog.querySelector(layout === 'fic' ? '[aria-label="和谁的同人文"]' : '[aria-label="看谁的恋爱脑报告"]');
+    field.value = '__multiple';
+    field.dispatchEvent(new Event('change'));
+    dialog.querySelector('[aria-label="人物：角色甲"]').click();
+    dialog.querySelector('[aria-label="其他人物"]').value = '角色乙、角色甲';
+    if (layout === 'report') dialog.querySelector('[aria-label="谁写报告"]').value = '__self';
+    button('开始写', dialog).click();
+    let item;
+    await wait(async () => item = (await db.extrasOf(story.id)).find(x => x.layout === layout));
+    root.replaceChildren();
+    const end = await extras.render(root, {id:story.id, extraId:item.id});
+    try {
+      await wait(() => !end.busy());
+      const sent = requests.at(-1).body.messages[0].content;
+      assert.ok(sent.includes('角色甲、角色乙'));
+      assert.ok(sent.includes('雨天开花店'));
+      assert.ok(sent.includes('多人恋爱关系'));
+      assert.ok(!sent.includes('所有内容全年龄向'));
+      if (layout === 'report') assert.ok(sent.includes('【谁写报告】主角（你）：林舟'));
+      assert.ok((await db.get('extras',item.id)).versions[0].text);
+    } finally { end(); }
+  }
 });

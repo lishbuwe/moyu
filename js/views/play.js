@@ -552,7 +552,7 @@ export async function render(root, { id }) {
     const continuationMessages = continueNode && base.trim()
       ? [{ role: 'assistant', content: base }, { role: 'user', content: rewriteNote != null ? rewriteMsg(rewriteNote) : CONTINUE_MSG }]
       : [];
-    const ctx = buildContext(story, pathTo(a.parentId), { budgetChars, modules: st.modules, extra: extraDirector || '', globalMemo: st.globalMemo, continuationMessages });
+    const ctx = buildContext(story, pathTo(a.parentId), { showThought: getPrefs().showThought, budgetChars, modules: st.modules, extra: extraDirector || '', globalMemo: st.globalMemo, continuationMessages });
     ctx.info.historyChars = ctx.messages.reduce((sum, m) => sum + m.content.length, 0);
     ctx.info.totalChars = ctx.system.length + ctx.info.historyChars;
     const freshRecall = (ctx.info.continuity?.automatic || []).filter((hit) => hit.fresh)
@@ -1197,7 +1197,7 @@ export async function render(root, { id }) {
     const path = headPath();
     const previewPath = draft ? [...path, composerTurn(st.ooc ? 'ooc' : 'play', draft)] : path;
     const lastCtx = !draft && st.lastCtxNodeId === story.headId ? st.lastCtx : null;
-    const ctx = lastCtx || buildContext(story, previewPath, { budgetChars: inputBudgetChars(st.conn), modules: st.modules, globalMemo: st.globalMemo });
+    const ctx = lastCtx || buildContext(story, previewPath, { showThought: getPrefs().showThought, budgetChars: inputBudgetChars(st.conn), modules: st.modules, globalMemo: st.globalMemo });
     const s = sheet({ title: lastCtx ? (headPath().at(-1)?.error?.kind === 'input_budget' ? '上轮未发送的内容' : '上一轮发给模型的内容') : draft ? '本轮草稿将发送的内容' : '按当前分支预览上下文' });
     const i = ctx.info;
     const block = (label, text, open = false) => {

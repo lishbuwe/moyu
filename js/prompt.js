@@ -7,16 +7,16 @@ import { forContext, parseReply } from './parse.js';
 import { INPUT_CONVENTION, PERSONAL_RULES, OPTION_GUIDE } from './personal.js';
 import { protagonistState, PROTAGONIST_FIELDS } from './protagonist.js';
 import { EMPHASIS_GUIDE } from './inline.js';
-import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
+import { stripReasoning, finalOutputGuide } from './reasoning.js';
 import { projectColumns, coreFact, layeredMemory } from './structured-memory.js';
 import { activeEdition, editionMemory } from './consolidation.js';
 import { continuityPlan } from './continuity.js';
 
 export const DEFAULT_RULES = PERSONAL_RULES;
 
-export function formatContract({ danmu = true, options = true } = {}) {
+export function formatContract({ danmu = true, options = true, showThought = false } = {}) {
   const parts = [
-    FINAL_OUTPUT_GUIDE,
+    finalOutputGuide(showThought),
     '每次回复严格按下面的格式，不要输出格式以外的说明：',
     '# 本章标题（第一行，四到十二个字，不写“第几章”）',
     '（空一行后写正文）',
@@ -210,7 +210,7 @@ export function inputBudgetChars(conn) {
   return Number.isFinite(n) && n >= 6000 && n <= 120000 ? Math.floor(n) : 30000;
 }
 
-export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '', continuationMessages = [] } = {}) {
+export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2, modules = [], extra = '', globalMemo = '', continuationMessages = [], showThought = false } = {}) {
   const lean = story.memoryMode !== 'full';
   let { sentCards, present, sentModules } = selectExtras(story, path, modules, extra);
   const cp = latestCheckpoint(path);
@@ -252,7 +252,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   for (const m of sentModules) add(`规则模块 · ${m.name}${m.mode === 'manual' ? '（情境）' : m.mode === 'keyword' ? '（关键词）' : ''}`, `【规则模块·${m.name}】\n${m.text.trim()}`, 'module');
   for (const c of sentCards.filter((c) => !c.core)) add(`角色卡 · ${c.name}（被提到）`, promptCard(c), 'card');
   add('玩家输入约定', INPUT_CONVENTION, 'rules');
-  add('输出格式', '【输出格式】\n' + formatContract({ danmu: story.danmu !== false, options: story.options !== false }), 'format');
+  add('输出格式', '【输出格式】\n' + formatContract({ showThought, danmu: story.danmu !== false, options: story.options !== false }), 'format');
   if (continuity) add('互动连续性', '【互动连续性】\n初始设定是故事的起点。判断人物现在的态度、距离和措辞时，以本分支中已经发生的互动为依据。较早片段只是前因；可以延续、暂时搁下或在合适时回应。保留仍未挑明的地方，不替人物定性。', 'rules');
   let system = parts.map((p) => p.text).join('\n\n');
   const chapterReplies = path.map((n, i) => n.role === 'assistant' && n.kind !== 'ooc' && n.text?.trim() ? i : -1).filter((i) => i >= 0);

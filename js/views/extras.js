@@ -120,6 +120,16 @@ async function newExtra(story, nodes) {
   const owner = personPicker(story,'视角角色');
   const reporter = personPicker(story,'谁写报告',{mixed:false});
   const companions = companionPicker(story);
+  const targets = companionPicker(story, {label:'选择人物', role:'人物', hint:''});
+  const syncTargets = () => { targets.el.hidden = owner.select.value !== '__multiple'; };
+  owner.select.addEventListener('change', syncTargets);
+  const selectedTarget = () => {
+    if (owner.select.value !== '__multiple') return owner.value();
+    const people = targets.value();
+    if (!people.length) return {kind:'auto',name:''};
+    if (people.length === 1) return people[0];
+    return {kind:'multiple',people,name:people.map(p => p.name).join('、')};
+  };
   const apiSelect = await connectionSelect();
   const anchorSel = el('select');
   anchorSel.append(el('option', { value: String(chapters.length) }, chapters.length ? `当前进度（第 ${chapters.length} 章之后）` : '正史还没开始'));
@@ -155,7 +165,8 @@ async function newExtra(story, nodes) {
     const p = playbookOf(t);
     const layout = layoutOf(t);
     owner.el.hidden = layout === 'show';
-    owner.configure({label:layout==='chat'?'看谁的手机':layout==='report'?'看谁的恋爱脑报告':layout==='fic'?'和谁的同人文':'视角角色',allowSelf:layout!=='fic',mixed:true});
+    owner.configure({label:layout==='chat'?'看谁的手机':layout==='report'?'看谁的恋爱脑报告':layout==='fic'?'和谁的同人文':'视角角色',allowSelf:layout!=='fic',mixed:true,multi:layout==='fic'||layout==='report'});
+    syncTargets();
     reporter.el.hidden = layout !== 'report';
     companions.el.hidden = layout !== 'show';
     subtypeBox.hidden = !p || ['chat','report'].includes(layout);
@@ -179,7 +190,7 @@ async function newExtra(story, nodes) {
     el('div', { class: 'field' }, el('label', { text: '形式' }), tplSel, tplHint),
     subtypeBox,
     el('div', { class: 'field' }, el('label', { text: '要求（可留空）' }), req),
-    owner.el, reporter.el, companions.el,
+    owner.el, targets.el, reporter.el, companions.el,
     el('div',{class:'field'},el('label',{text:'番外 API'}),apiSelect,el('div',{class:'hint',text:'单独选择并记住，不跟随正文 API。'})),
     el('div', { class: 'field' }, el('label', { text: '时间点' }), anchorSel, el('div', { class: 'hint', text: '时间点之后的正史一律不发给模型，番外就不会提前写到。' })),
     el('div', { class: 'field' }, el('label', { text: '带上时间点前最近几章的原文' }), recent, el('div', { class: 'hint', text: '让模型熟悉人物口吻和最近发生的事。更早的剧情可以在下面单独指定。' })),
@@ -200,8 +211,8 @@ async function newExtra(story, nodes) {
         const layout = layoutOf(t);
         const cast = {version:3,protagonist:{kind:'self',name:story.protagonist?.name?.trim() || '主角'}};
         if(layout==='show')cast.companions=companions.value();
-        else if(layout==='fic')cast.partner=owner.value();
-        else if(layout==='report'){cast.subject=owner.value();cast.reporter=reporter.value();}
+        else if(layout==='fic')cast.partner=selectedTarget();
+        else if(layout==='report'){cast.subject=selectedTarget();cast.reporter=reporter.value();}
         else cast.owner=owner.value();
         if ([cast.owner,cast.partner,cast.subject,cast.reporter].some(p=>p?.kind==='named'&&!p.name)) {toast('请填写人物姓名');return;}
         if(cast.partner?.name && cast.partner.name===cast.protagonist.name){toast('请选择主角以外的同人关系对象');return;}
@@ -358,6 +369,7 @@ async function renderReader(root, story, nodes, extraId) {
     const historyPath = path.length && head.some((n) => n.id === x.anchorId) ? head : path;
     const chapters = chaptersOf(path);
     return buildExtraContext(story, {
+      showThought: getPrefs().showThought,
       chapters, anchorNo: chapters.length, recentN: x.recentN, pinned: x.pinned || [],
       template: { name: x.tplName, text: x.tplText, scope: x.tplScope, layout:x.layout }, variant:x.variant, cast:x.cast, request, scope: x.scope, pov: x.pov,
       length: x.length, modules, base, path, historyPath, atLiveHead: x.anchorId === story.headId, budgetChars,

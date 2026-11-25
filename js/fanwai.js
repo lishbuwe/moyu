@@ -8,7 +8,7 @@ import { cardText, splitNames, protagonistText } from './prompt.js';
 import { recallPassages } from './recall.js';
 import { layeredMemory, recordsAt } from './structured-memory.js';
 import { EMPHASIS_GUIDE } from './inline.js';
-import { stripReasoning, FINAL_OUTPUT_GUIDE } from './reasoning.js';
+import { stripReasoning, finalOutputGuide } from './reasoning.js';
 import { castNames, castText } from './extra-options.js';
 import { PLAYBOOKS, PLAYBOOK_COMMON, LAYOUT_GUIDE, layoutOf, PLAYBOOK_UPDATES, PLAYBOOK_RELATIONS, PLAYBOOK_EDITORIAL, NICKNAME_GUIDE, extraEditorial, refreshPlaybookText, playbookOf } from './extra-playbooks.js';
 
@@ -44,6 +44,19 @@ const BUILTIN = [
   ['吐槽局', 'public', '几个已登场的配角凑在一起吃饭喝酒，聊主角和这段关系的八卦。以对话为主，互相接梗拆台，有人说漏嘴、有人护短、有人看热闹不嫌事大，可以跑题。'],
 ];
 
+// 仅识别旧版完整出厂文本；自定义模板逐字保留。
+const ficBook = PLAYBOOKS.find(book => book.layout === 'fic');
+const previousFicRelation = '【关系选择修订】用户选择的是“和谁的同人文”，核心组合为玩家主角与所选人物；选择“不同人”时每篇分别写主角与不同人物，逐篇标清配对，不自动写多人共同恋爱。此选择不限制同人作者或叙述视角，也不改变玩家主角身份。';
+function stockFicText(relation) {
+  return [ficBook.text, PLAYBOOK_UPDATES.fic || '', relation, PLAYBOOK_EDITORIAL.fic].join('\n');
+}
+function currentTemplate(template) {
+  if (layoutOf(template) === 'fic' && template?.text === stockFicText(previousFicRelation)) {
+    return {...template, text:stockFicText(PLAYBOOK_RELATIONS.fic)};
+  }
+  return template;
+}
+
 export function builtinTemplates() {
   return [...BUILTIN.map(([name, scope, text], i) => ({ id: 'builtin-' + i, name, scope, text, note: '', layout: layoutOf({name}) })), ...PLAYBOOKS.map(p => ({...p, text:p.text+'\n'+(PLAYBOOK_UPDATES[p.layout] || '')+'\n'+(PLAYBOOK_RELATIONS[p.layout] || '')+'\n'+(PLAYBOOK_EDITORIAL[p.layout] || ''), playbookRevision:5, note:''}))];
 }
@@ -69,7 +82,7 @@ export async function getTemplates() {
     }
   }
   if(changed) await saveTemplates(v);
-  return v;
+  return v.map(currentTemplate);
 }
 export async function saveTemplates(list) { await db.kvSet('fwTemplates', list); return db.kvSet('fwPlaybooksV1', true); }
 export async function getBase() {
@@ -101,7 +114,8 @@ export function chaptersOf(path) {
  * opts: { chapters, anchorNo, recentN, pinned:[no], template, request, scope, pov, length, modules(已筛好要带的), base }
  */
 export function buildExtraContext(story, opts) {
-  const { chapters, anchorNo, recentN = 6, pinned = [], template, request = '', pov = '', length = 'mid', modules = [], base = DEFAULT_BASE } = opts;
+  const { chapters, anchorNo, recentN = 6, pinned = [], request = '', pov = '', length = 'mid', modules = [], base = DEFAULT_BASE } = opts;
+  const template = currentTemplate(opts.template);
   const scope = opts.scope && opts.scope !== 'follow' ? opts.scope : (template?.scope || 'all');
   const upto = chapters.filter((c) => c.no <= anchorNo);
   const recent = recentN > 0 ? upto.slice(-recentN) : [];
@@ -159,10 +173,11 @@ export function buildExtraContext(story, opts) {
     add('材料排版', LAYOUT_GUIDE);
     if (PLAYBOOK_UPDATES[layout] && !template?.text?.includes(PLAYBOOK_UPDATES[layout])) add('当前玩法要求', PLAYBOOK_UPDATES[layout]);
     if (PLAYBOOK_RELATIONS[layout] && !template?.text?.includes(PLAYBOOK_RELATIONS[layout])) add('人物关系与材料整合',PLAYBOOK_RELATIONS[layout]);
-    add('本次人物选择',castText(opts.cast,layout));
+    if (layout !== 'fic' && layout !== 'report') add('本次人物选择',castText(opts.cast,layout));
     if (opts.variant) add('本次子类', '【本次玩法选择】\n' + opts.variant + '\n未指定的维度自行变化；指定子类不限制框架内的自由扩展。');
   }
   add(`形式 · ${template?.name || '自定义'}`, '【这篇的形式与写法】\n' + (template?.text?.trim() || '按下面玩家的要求来写。'));
+  if (layout === 'fic' || layout === 'report') add('本次人物选择',castText(opts.cast,layout));
   add('知情范围', '【知情范围】\n' + scopeText + (scope === 'all' ? '' : ' 正史和人设供作者理解前因后果。落到每个人的台词和行动时，依照此人在场所见、听闻和自身立场来写。'));
   for (const m of modules) add(`规则模块 · ${m.name}`, `【规则模块·${m.name}】\n${m.text.trim()}`);
   add('世界设定', story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '');
@@ -178,7 +193,7 @@ export function buildExtraContext(story, opts) {
   if (passages.length) add('较早正文片段', passages.map(hit => '【第' + hit.chapter.no + '章】\n' + hit.quote).join('\n\n'));
   add('指定章节原文', pinnedMaterial ? '【手动指定的更早章节】\n' + pinnedMaterial : '');
   if(layout) add('当前叙事修订（优先于旧模板冲突条款）',extraEditorial(layout,opts.cast));
-  add('最终输出要求',FINAL_OUTPUT_GUIDE);
+  add('最终输出要求',finalOutputGuide(opts.showThought));
   const budget = Number(opts.budgetChars) || 30000;
   let system = parts.map((p) => p.text).join('\n\n');
   const user = `请写这篇番外，篇幅大约 ${lenChars} 字（${lenLabel}篇）${lenChars >= 5000 ? '，要写足，不要提前收尾' : ''}。` + (request.trim() ? `\n这次的要求：${request.trim()}` : '') + (pov && scope !== 'char' ? `\n视角角色：${pov}` : '');

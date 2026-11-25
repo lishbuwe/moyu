@@ -1,6 +1,9 @@
 // 只识别明确的思考标签，不依据语言、关键词或段落内容猜测，避免误删小说。
 const NAMES = ['think', 'thinking', 'analysis', 'reasoning'];
-export const FINAL_OUTPUT_GUIDE = '只输出最终回答；写剧情时只输出最终剧情正文及要求的标题、弹幕、选项或材料。不输出写作计划、推理过程、思维链、自检记录或分析说明，也不把这些内容放入正文。';
+const FINAL_FORMAT = '只输出最终回答；写剧情时只输出最终剧情正文及要求的标题、弹幕、选项或材料。';
+export const FINAL_OUTPUT_GUIDE = FINAL_FORMAT + '不输出写作计划、推理过程、思维链、自检记录或分析说明，也不把这些内容放入正文。';
+
+export function finalOutputGuide(showThought) { return showThought ? FINAL_FORMAT : FINAL_OUTPUT_GUIDE; }
 
 export function inspectReasoning(value, { streaming = false } = {}) {
   const source=String(value || '');
