@@ -766,7 +766,7 @@ export async function render(root, { id }) {
       { key: 'edit', label: '修改这一章', hint: '改完直接算数，之后模型看到的就是改过的版本' },
       { key: 'cut', label: '从某一段往后重写', hint: '前面的段落保留，选一段从那里重新写' + branchHint },
       { key: 'redo', label: '按要求重写这一章', hint: '写一句要求，整章重写；原版本保留，可以左右切换' + branchHint },
-      { key: 'fix', label: '这不像他（纠正人设）', hint: '写进角色卡的禁止清单，以后每轮都会提醒；可以顺手重写这一章' },
+      { key: 'fix', label: '这不像他（纠正人设）', hint: '写进角色卡的性格与底线；可以顺手重写这一章' },
       isLast ? null : { key: 'back', label: '回到这里', hint: `从这一章重新往后玩${later > 0 ? `，后面的 ${later} 章放进分支` : ''}` },
       { key: 'copy', label: '复制正文' },
       { key: 'pin', label: n.continuityPins?.length ? '管理保留的互动' : '保留这段互动', hint: '选段原文供后续正文接续参考' },
@@ -1169,7 +1169,7 @@ export async function render(root, { id }) {
     s.body.append(
       el('div', { class: 'field' }, el('label', { text: '是谁' }), sel),
       el('div', { class: 'field' }, el('label', { text: '哪里不像' }), area,
-        el('div', { class: 'hint', text: `会写进他的禁止清单，标上“第 ${chapterNo} 章纠正”。以后他在场时，每轮都会提醒模型。` })),
+        el('div', { class: 'hint', text: `会写进他的性格与底线，标上“第 ${chapterNo} 章纠正”。` })),
       el('div', { class: 'switch-row' }, el('div', { class: 'lbl' }, '记下后重写这一章', el('small', { text: '原版本保留，可以左右切换' })), el('label', { class: 'switch' }, regen, el('span'))),
     );
     s.foot.append(
@@ -1185,7 +1185,7 @@ export async function render(root, { id }) {
           card.updatedAt = Date.now();
           await saveStory();
           s.close();
-          toast(`已写进「${card.name}」的禁止清单`);
+          toast(`已写进「${card.name}」的性格与底线`);
           if (regen.checked) regenerate(n, `上一版里${card.name}不像他自己：${text}。按他的角色卡重写这一章。`);
         },
       }, '记下'));
@@ -1221,7 +1221,7 @@ export async function render(root, { id }) {
         i.continuity.omitted.length ? el('div', { text: '未带整章原文的待整理章节：' + i.continuity.omitted.join('、') }) : null) : null,
       el('div', { class: 'card', style: { fontSize: '14px', lineHeight: 1.7 } },
         el('div', {}, '角色卡：', i.cards?.length ? i.cards.join('、') : '无'),
-        el('div', {}, '在场（会提醒禁止清单）：', i.present?.length ? i.present.join('、') : '无'),
+        el('div', {}, '在场：', i.present?.length ? i.present.join('、') : '无'),
         el('div', {}, '规则模块：', i.modules?.length ? i.modules.join('、') : '无')),
       i.omittedCore?.length ? block('核心栏未带入 · '+i.omittedCore.length+' 条', i.omittedCore.map(r => '第'+r.from+(r.from === r.to ? '' : '–'+r.to)+'章 · '+r.preview+(r.recalled ? '（检索已补回）' : '')).join('\n')) : null,
       i.materials?.length ? block('本轮选材依据', i.materials.map(m=>[m.source,m.chapter && '第'+(m.from && m.from!==m.chapter ? m.from+'–' : '')+m.chapter+'章',m.id,m.reason,m.chars+'字'].filter(Boolean).join(' · ')).join('\n')) : null,

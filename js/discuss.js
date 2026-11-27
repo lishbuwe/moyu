@@ -101,7 +101,7 @@ export function chatMessages(d) {
 }
 
 // ───── 整理成修改 ─────
-const CARD_FIELDS = { initial: '初始设定', base: '底色', voice: '原话锚', forbid: '禁止清单', now: '当前状态', arc: '变化轨迹', relation: '关系档案' };
+const CARD_FIELDS = { initial: '初始设定', base: '底色', voice: '原话锚', forbid: '性格与底线', now: '当前状态', arc: '变化轨迹', relation: '关系档案' };
 const MEM_FIELDS = { corrections: '勘误', irreversible: '不可逆的事', threads: '未决事项与暗线', knowledge: '信息差', items: '物品与信物', offscreen: '暗处动向' };
 const TARGET_LABEL = { world: '世界设定', opening: '开场', rules: '规则', card: '角色卡', newcard: '新角色卡', memory: '前情档案', newstory: '新故事' };
 
@@ -111,7 +111,7 @@ export function changesPrompt(d) {
 - "rules"：写作规则、文风要求、"以后要/不要怎样"。text 写成一两条可以直接放进规则的话。
 - "world"：世界观、背景、人物关系等设定的补充。op 为 "append"（追加）或 "replace"（把 old 原文换成 text；old 必须一字不差地出自现有设定）。
 - "opening"：开场，op 只能 "replace"，text 是完整新开场。
-- "card"：修改已有角色卡，name 写角色名，field 取 ${Object.keys(CARD_FIELDS).join(' / ')}（${Object.values(CARD_FIELDS).join('、')}），追加 text。
+- "card"：修改已有角色卡，name 写角色名，field 取 ${Object.keys(CARD_FIELDS).join(' / ')}（${Object.values(CARD_FIELDS).join('、')}），追加 text。整理性格与底线时写通常的做法和缘由，不替玩家写“绝不”。
 - "newcard"：新角色，name 写名字，text 写初始设定。
 - "memory"：纠正或补充已经发生的剧情事实，field 取 ${Object.keys(MEM_FIELDS).join(' / ')}（${Object.values(MEM_FIELDS).join('、')}），纠错一律用 corrections。` : `可用的 target：
 - "rules"：所有故事通用的写作规则、偏好。text 写成一两条可以直接放进规则的话。

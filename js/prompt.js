@@ -106,7 +106,8 @@ export function cardText(c, {arcLimit, voiceLimit}={}) {
   if (c.initial?.trim()) parts.push('〔初始设定〕\n' + c.initial.trim());
   if (c.base?.trim()) parts.push('〔底色：遇事怎么做、说话的样子、身份与配套〕\n' + c.base.trim());
   if (c.voice?.trim()) parts.push('〔原话（只用来校准口气和节奏，不要照抄）〕\n' + asList(c.voice));
-  if (c.forbid?.trim()) parts.push('〔禁止：他不会这样做〕\n' + asList(c.forbid));
+  if (c.forbid?.trim()) parts.push('〔性格与底线〕\n' + asList(c.forbid));
+  if (c.hardLimits?.trim()) parts.push('〔绝不（玩家设定）〕\n' + asList(c.hardLimits));
   if (c.arc?.trim()) parts.push('〔变化轨迹〕\n' + c.arc.trim());
   if (c.now?.trim()) parts.push('〔当前状态与称呼〕\n' + c.now.trim());
   if (c.relation?.trim()) parts.push('〔和主角的关系档案〕\n' + c.relation.trim());
@@ -149,18 +150,11 @@ export function selectExtras(story, path, modules = [], extra = '') {
   return { sentCards, present, sentModules };
 }
 
-/** 末尾提醒：在场角色的禁止清单，放在最后一条玩家消息里（离模型“下笔”最近） */
 /** 每轮最后一句的格式提醒：规则很长时模型容易忘了写弹幕和选项 */
 function formatTail(story) {
   const want = [story.danmu !== false ? '【弹幕】' : '', story.options !== false ? '【选项】' : ''].filter(Boolean);
   if (!want.length) return '';
   return `\n\n（格式提醒：正文写完后依次写${want.join('和')}，不要省略。）`;
-}
-
-function tailReminder(present, { maxEach = 5 } = {}) {
-  const rows = present.filter((c) => c.forbid?.trim()).map((c) => `- ${c.name}：${lines(c.forbid).slice(-maxEach).map((l) => l.replace(/^[-*•·]\s*/, '')).join('；')}`);
-  if (!rows.length) return '';
-  return '\n\n【在场角色提醒·玩家场外设置，不要在正文里提到】\n' + rows.join('\n');
 }
 
 // ───────────── 前情档案（存档挂在某一章的回复节点上） ─────────────
@@ -233,7 +227,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   function promptCard(c) {
     const state=applyCardState(c,cp?.mem);
     if (lean && !present.includes(c)) return ['【角色卡·' + c.name + '】',(state.brief || state.now || state.base || '').split(/[。！？\n]/)[0].slice(0,60)].filter(Boolean).join(' · ');
-    return cardText(lean ? {...state,forbid:''} : state,lean ? {arcLimit:700,voiceLimit:2} : {});
+    return cardText(state,lean ? {arcLimit:700,voiceLimit:2} : {});
   }
   add('开头', '你正在主持一场文字互动小说。', 'base');
   add('规则（这个故事）', story.rules?.trim() ? '【规则】\n' + story.rules.trim() : '', 'rules');
@@ -268,14 +262,13 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const playReplies = kept.filter((n) => n.role === 'assistant' && n.kind !== 'ooc');
   const rawSet = new Set(playReplies.slice(-(lean ? 1 : keepRawLast)).map((n) => n.id));
 
-  const tail = tailReminder(present,{maxEach:lean ? 8 : 5});
   const fmtTail = formatTail(story);
   const lastUser = kept.findLast((n) => n.role === 'user');
   function message(n, raw = false) {
     if (n.role === 'user') {
       let content = userContent(n, { withDirector: n === lastUser });
       if (n === lastUser) {
-        if (n.kind !== 'ooc') content += tail + fmtTail;
+        if (n.kind !== 'ooc') content += fmtTail;
         if (extra.trim()) content += directorBlock(extra);
       }
       return { role: 'user', content };
@@ -293,7 +286,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   if (lean) for (const card of story.cards || []) {
     const here = present.includes(card);
     materials.push({source:'角色卡',id:card.name,chars:sentCards.includes(card) ? promptCard(card).length : 0,
-      reason:here ? '近期叙述或导演提及，完整卡；禁止清单在末尾提醒' : card.core ? '离场常驻，仅索引' : '离场非常驻，省略'});
+      reason:here ? '近期叙述或导演提及，完整卡' : card.core ? '离场常驻，仅索引' : '离场非常驻，省略'});
   }
   const lead = {role:'user',content:cp ? '（更早的剧情见系统提示里的“前情档案”。下面从最近一章接着来。）' : '（更早的剧情因为太长没有发送。下面从这里接着来。）'};
   const fixedSize = () => size(messages) + system.length + continuationChars + (messages[0]?.role === 'assistant' ? lead.content.length : 0);
@@ -312,7 +305,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       const here = present.includes(card);
       if (here) {
         const state = applyCardState(card,cp?.mem);
-        const shorter = cardText({...state,voice:'',forbid:''},{arcLimit:700});
+        const shorter = cardText({...state,voice:''},{arcLimit:700});
         if (shorter.length >= part.text.length) continue;
         part.text = shorter;
       } else parts.splice(parts.indexOf(part),1);
@@ -458,7 +451,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
       materials, memoryPlan: lean ? 'lean' : 'legacy', fastPath: selection?.fastPath || false,
       systemChars: system.length, historyChars, totalChars: system.length + historyChars, budgetChars, trimmed, count: messages.length,
       parts: parts.filter((p) => p.text).map((p) => ({ label: p.label, chars: p.text.length, text: p.text, kind: p.kind })),
-      tail, cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
+      cards: sentCards.map((c) => c.name), present: present.map((c) => c.name), modules: sentModules.map((m) => m.name),
       memoryUpTo: cp ? cp.mem.upTo : 0,
       memoryMode: compact ? 'layered' : 'full', retrievalHits: layered?.hits || [], coreIncluded: layered?.records.core.length || 0, coreRecalled: layered?.records.recalled.filter(r => coreFact(r) && layered.hits.some(h => h.id === r.id)).length || 0, coreOmitted: layered?.omittedCore.length || 0, omittedCore: (layered?.omittedCore || []).map(r => ({ from:r.sourceFrom, to:r.sourceTo, preview:[...r.event].slice(0,30).join(''), recalled:layered.hits.some(h => h.id === r.id) })), continuity: continuityInfo,
     },

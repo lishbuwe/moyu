@@ -104,7 +104,7 @@ export function archivistPrompt(story, prev, batch, path = [], syncProtagonist =
     user: [
       story.world?.trim() ? '【世界设定】\n' + story.world.trim().slice(0, 4000) : '',
       protagonistText(story, syncProtagonist ? path : []),
-      cards ? '【角色卡（初始设定、原话、禁止清单这些不归你改；你只负责“当前状态”“变化轨迹”“关系档案”）】\n' + cards : '【角色卡】\n（还没有任何角色卡）',
+      cards ? '【角色卡（初始设定、原话、性格与底线、玩家填写的绝不这些不归你改；你只负责“当前状态”“变化轨迹”“关系档案”）】\n' + cards : '【角色卡】\n（还没有任何角色卡）',
       briefTargets.length ? '【补写旧核心事实简版】只处理下列 ID。保留否定、归属、时序与知情边界，40字内不能准确表达就留空。\n'+JSON.stringify(briefTargets) : '',
       '【已有的前情档案】\n' + prevText,
       prev.records?.length ? '【近期可覆盖的结构化记忆 ID】\n' + prev.records.filter((x) => x.column === 'event' && !x.irreversible && x.invalidatedAt == null).slice(-80)
@@ -131,7 +131,7 @@ export function archivistPrompt(story, prev, batch, path = [], syncProtagonist =
           initial: '身份、外貌、怎么登场的、和主角的关系、对主角的初始态度',
           base: '从正文看出来的性格底色：遇事怎么反应、怎么说话',
           voice: '正文里他说过的有代表性的原话，原样摘，一行一句',
-          forbid: '从正文看他明显不会做的事，一行一条；看不出来就空字符串',
+          forbid: '根据剧情写角色通常怎么做、在意什么，底线可以随经历变化；不要写成“绝不”或推断永久禁令；没有依据就留空',
           now: '现在走到哪一步、对主角的立场、彼此怎么称呼',
           relation: '和主角的关系：相处梗、称呼、约定',
         }],

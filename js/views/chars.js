@@ -19,7 +19,7 @@ function pathTo(nodes, nodeId) {
 }
 const lines = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean);
 const CARD_FIELDS = {
-  npc: ['name', 'aliases', 'publicProfile', 'initial', 'base', 'voice', 'forbid', 'arc', 'now', 'relation', 'core'],
+  npc: ['name', 'aliases', 'publicProfile', 'initial', 'base', 'voice', 'forbid', 'hardLimits', 'arc', 'now', 'relation', 'core'],
   protagonist: ['name', 'gender', 'note', 'publicProfile'],
 };
 const CARD_APP = 'moyu-character';
@@ -113,10 +113,11 @@ export async function render(root, { id }) {
         memo('关系档案', s.relation, { badge: s.from ? `第 ${s.from} 章整理` : '' }),
         c.initial?.trim() && c.base?.trim() ? memo('底色', c.base) : null,
         memo('原话锚', c.voice),
-        memo('禁止清单', c.forbid),
+        memo('性格与底线', c.forbid),
+        c.hardLimits?.trim() ? memo('绝不', c.hardLimits) : null,
       ].filter(Boolean) : []),
       el('div', { class: 'npc-foot' },
-        ...[forbidN ? el('span', { class: 'tag', text: `禁止清单 ${forbidN} 条` }) : null,
+        ...[forbidN ? el('span', { class: 'tag', text: `性格与底线 ${forbidN} 条` }) : null,
           voiceN ? el('span', { class: 'tag', text: `原话锚 ${voiceN} 句` }) : null].filter(Boolean),
         el('span', { style: { flex: 1 } }),
         el('button', { class: 'npc-more', onclick: toggle }, isOpen ? '收起' : '展开全部')));
@@ -280,7 +281,7 @@ export async function render(root, { id }) {
       aiBtn.disabled = true;
       aiStatus.textContent = `正在用「${connLabel(conn)}」整理…`;
       const prompt = '下面是一个文字互动小说的设定' + (picked.length ? '和最近的剧情' : '') + '。玩家扮演主角（正文里的“你”）。请只根据原文整理主角的资料，不要编造。' +
-        '只输出一个 JSON 对象，不要说明：{"name":"主角的名字，原文没写就空字符串","gender":"女/男/其他/不确定——只有原文明确写了才填女或男","genderWhy":"判断性别的依据，引用原文的一小句","note":"身份、外貌、穿着、性格、别人怎么称呼主角、和主要角色的关系，几行短句，原文没有的不写"}\n\n' +
+        '只输出一个 JSON 对象，不要说明：{"name":"主角的名字，原文没写就空字符串","gender":"女/男/其他/不确定——只有原文明确写了才填女或男","genderWhy":"判断性别的依据，引用原文的一小句","note":"身份、外貌、穿着、性格、别人怎么称呼主角、和主要角色的关系，几行短句，原文没有的不写；性格只写倾向和底线，不替玩家定下“绝不”"}\n\n' +
         (story.world?.trim() ? '【世界设定】\n' + story.world.trim() + '\n\n' : '') + (picked.length ? '【最近的剧情】\n' + picked.join('\n\n') : '');
       try {
         const r = await pageRequest(conn, { system: '你是资料整理助手，只输出 JSON。', messages: [{ role: 'user', content: prompt }], maxTokens: 3000 });
@@ -338,7 +339,7 @@ export async function render(root, { id }) {
         el('button', { class: 'btn primary', onclick: () => editCard(null) }, '＋ 新角色'),
         el('button', { class: 'btn', onclick: () => aiSplit() }, '让 AI 从设定和剧情里拆角色卡')),
       el('div', { class: 'hint', style: { marginTop: '12px' } },
-        '“常驻”的角色每轮都发给模型；其他角色只在最近的剧情或你的输入里被提到时才发。在场角色的禁止清单会贴在每轮最后提醒模型。游玩时某一章“⋯ → 这不像他”会把纠正写进禁止清单。剧情里新登场、会反复出现的角色，整理前情时会自动建卡（标“AI 新加”）。'));
+        '“常驻”的角色每轮都发给模型；其他角色只在最近的剧情或你的输入里被提到时才发。游玩时某一章“⋯ → 这不像他”会把纠正写进性格与底线。剧情里新登场、会反复出现的角色，整理前情时会自动建卡（标“AI 新加”）。'));
   }
   const redraw = draw;
   const onCards = (e) => {
@@ -398,7 +399,8 @@ export async function render(root, { id }) {
       field('initial', '一、初始设定', { tall: true, lock: true, ph: '开局给的设定：身份、外貌、和主角的起点关系、登场时的态度' }),
       field('base', '二、底色', { tall: true, ph: '遇事反应：被夸、被拒、吃醋、被冒犯时具体会做什么；说话的样子；身份与配套（谁伺候他、钱怎么花、什么事不会亲自动手）' }),
       field('voice', '原话锚（一行一句）', { tall: true, lock: true, ph: '他说过的、最像他的几句话。只用来校准口气，模型不会照抄。' }),
-      field('forbid', '禁止清单（一行一条）', { tall: true, lock: true, ph: '例：不会当众道歉（第12章纠正）\n不会主动解释自己', hint: '游玩时在某一章点“⋯ → 这不像他”，会自动写进这里。' }),
+      field('forbid', '性格与底线', { tall: true, lock: true, ph: '例：他很看重体面，当众认错对他尤其难。' }),
+      field('hardLimits', '绝不（可留空）', { tall: true, lock: true, hint: '只由你手动填写。' }),
       field('arc', '三、变化轨迹', { tall: true, ph: '第几章发生了什么、他因此哪里变了、哪里没变', hint: memHint }),
       field('now', '四、当前状态与称呼', { tall: true, ph: '现在走到哪一步、对主角的立场、彼此怎么称呼', hint: memHint }),
       field('relation', '关系档案', { tall: true, ph: '相处梗、称呼史、生效中的约定、亲密档案', hint: memHint }),
@@ -483,7 +485,7 @@ export async function render(root, { id }) {
       '。请把其中除主角（玩家扮演的“你”）以外、有名有姓、会反复出现的角色，整理成角色卡草稿。剧情里新登场的角色（包括设定里没有的）也要整理。\n' +
       (have.length ? '这些角色已经有卡了，不要再写：' + have.join('、') + '\n' : '') +
       '要求：只根据下面的原文，不要编造没写到的内容；没写到的栏留空字符串；路人和只出现一次的角色不要。只输出一个 JSON 数组，不要任何说明或代码块标记。\n' +
-      '每个元素：{"name":"名字","aliases":"别名、别人对他的称呼，用顿号分开","core":是否主要角色(true/false),"initial":"身份、外貌、和主角的关系、初始态度；剧情里登场的写清第几章怎么登场","base":"性格底色：遇事怎么反应、怎么说话","voice":"他说过的有代表性的原话，原样摘，一行一句","forbid":"明确写了或明显看得出他不会做的事，一行一条","now":"（剧情里出现过才写）现在走到哪一步、对主角的立场、彼此怎么称呼","relation":"（剧情里出现过才写）和主角的关系：相处梗、称呼、约定"}\n\n' +
+      '每个元素：{"name":"名字","aliases":"别名、别人对他的称呼，用顿号分开","core":是否主要角色(true/false),"initial":"身份、外貌、和主角的关系、初始态度；剧情里登场的写清第几章怎么登场","base":"性格底色：遇事怎么反应、怎么说话","voice":"他说过的有代表性的原话，原样摘，一行一句","forbid":"根据剧情写角色通常怎么做、在意什么，底线可以随经历变化；不要写成“绝不”或推断永久禁令","now":"（剧情里出现过才写）现在走到哪一步、对主角的立场、彼此怎么称呼","relation":"（剧情里出现过才写）和主角的关系：相处梗、称呼、约定"}\n\n' +
       [story.world?.trim() ? '【世界设定】\n' + story.world.trim() : '',
         m && picked.length && picked[0].no > 1 ? '【前情档案（更早的剧情）】\n' + memoryText(m.mem) : '',
         picked.length ? `【最近的剧情：${range}】\n` + picked.map((x) => x.block).join('\n\n') : ''].filter(Boolean).join('\n\n');
