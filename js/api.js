@@ -11,7 +11,7 @@ import { getRelay, relayFetch, RelayError } from './relay.js';
 import { inspectReasoning, stripReasoning } from './reasoning.js';
 import { prepareVertexCache } from './cache.js';
 
-export const FORMAT_LABEL = { auto: '自动识别', openai: 'OpenAI 兼容', anthropic: 'Claude 原生', vertex: 'Google Vertex AI（服务账号 JSON）' };
+export const FORMAT_LABEL = { auto: '自动识别', openai: 'OpenAI 兼容', anthropic: 'Claude 原生', gemini: 'Gemini / Google 原生', vertex: 'Google Vertex AI（服务账号 JSON）' };
 
 /** Vertex 连接：先用服务账号 JSON 换令牌，变成一条 OpenAI 兼容连接；其他连接原样返回 */
 async function effectiveConn(conn) {
@@ -42,7 +42,18 @@ export function guessFormat(conn) {
   return /anthropic|claude/i.test(conn.baseUrl || '') && !/openai/i.test(conn.baseUrl || '') ? 'anthropic' : 'openai';
 }
 
+function geminiModelsUrl(base) {
+  let url = String(base || 'https://generativelanguage.googleapis.com').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  if (!new URL(url).pathname.replace(/\/+$/, '')) url += '/v1beta';
+  return url.endsWith('/models') ? url : url + '/models';
+}
+
 export function normalizeUrl(format, base, conn = null) {
+  if (format === 'gemini') {
+    const model = encodeURIComponent(String(conn?.model || '模型名').replace(/^models\//, ''));
+    return geminiModelsUrl(base)+'/'+model+(conn?.stream === false ? ':generateContent' : ':streamGenerateContent?alt=sse');
+  }
   if (format === 'vertex') {
     try { return vertexBaseUrl(parseServiceAccount(conn?.apiKey), conn?.region) + '/chat/completions'; }
     catch (e) { throw new ApiError('bad_url', e.message, { hint: e.hint || '' }); }
@@ -77,6 +88,7 @@ function isOfficialAnthropic(url) {
 
 function headersFor(format, conn, url, json = true) {
   const h = {};
+  if (format === 'gemini') return {...(json && {'Content-Type':'application/json'}), 'x-goog-api-key':conn.apiKey};
   if (json) h['Content-Type'] = 'application/json';
   if (format === 'anthropic') {
     h['x-api-key'] = conn.apiKey;
@@ -120,6 +132,11 @@ function buildBody(format, conn, { system, messages, stream, maxTokens, cachePre
   const mt = num(maxTokens) || num(conn.maxTokens) || 8000;
   const temp = num(conn.temperature);
   const msgs = tidyMessages(messages);
+  if (format === 'gemini') return {
+    contents: msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})),
+    ...(system && {systemInstruction:{parts:[{text:system}]}}),
+    generationConfig:{maxOutputTokens:mt, ...(temp != null && {temperature:temp})}
+  };
   if (format === 'anthropic') {
     const b = { model: conn.model, max_tokens: mt, messages: msgs };
     if (system) {
@@ -262,6 +279,12 @@ function parseNonStream(format, j, collect) {
     const thinking = (j.content || []).some((b) => b.type === 'thinking');
     return { text, finish: j.stop_reason, usage: responseUsage(j), thinking, thought: collect ? returnedThought(j) : '' };
   }
+  if (format === 'gemini') {
+    const c = j.candidates?.[0], parts = c?.content?.parts || [], u = j.usageMetadata;
+    return {text:parts.filter(p=>!p.thought).map(p=>p.text || '').join(''), finish:c?.finishReason || j.promptFeedback?.blockReason,
+      thinking:parts.some(p=>p.thought), thought:collect ? parts.filter(p=>p.thought).map(p=>p.text || '').join('') : '',
+      usage:u && {prompt_tokens:u.promptTokenCount, completion_tokens:(u.candidatesTokenCount || 0)+(u.thoughtsTokenCount || 0),cached_content_token_count:u.cachedContentTokenCount}};
+  }
   const ch = j.choices?.[0];
   const internal=['analysis','reasoning','thinking'].includes(ch?.message?.channel);
   const text = internal?'':partsText(ch?.message?.content);
@@ -313,7 +336,7 @@ async function streamChatRaw(conn, { collectThought = false, system, messages = 
   const originalConn = conn;
   if (!resumeJob) { checkConn(conn); conn = await effectiveConn(conn); }
   const format = guessFormat(conn);
-  const url = resumeJob ? '' : normalizeUrl(format, conn.baseUrl);
+  const url = resumeJob ? '' : normalizeUrl(format, conn.baseUrl, conn);
   const wantStream = conn.stream !== false;
   const ctrl = linkAbort(signal);
   const config = resumeJob || (conn.viaRelay && !direct) ? await getRelay() : null;
@@ -385,7 +408,13 @@ async function streamChatRaw(conn, { collectThought = false, system, messages = 
         let j;
         try { j = JSON.parse(d); } catch { return; }
         if (j.error || j.type === 'error') throw streamError(j, text);
-        if (format === 'anthropic') {
+        if (format === 'gemini') {
+          const r = parseNonStream(format,j,collectThought);
+          if (r.text) { text += r.text; onText(r.text,text); }
+          if (r.thinking) { sawThinking = true; onThinking(); thought += r.thought; }
+          if (r.finish) finish = r.finish;
+          if (r.usage) usage = r.usage;
+        } else if (format === 'anthropic') {
           if (j.type === 'content_block_delta') {
             if (j.delta?.type === 'text_delta' && j.delta.text) { text += j.delta.text; onText(j.delta.text, text); }
             else if (j.delta?.type === 'thinking_delta') { sawThinking = true; onThinking(); if (collectThought) thought += j.delta.thinking || ''; }
@@ -510,6 +539,24 @@ export async function streamWithRetry(conn, opts, { retries = 1, onRetry = () =>
 export async function listModels(conn) {
   if (conn?.format === 'vertex') return listVertexModels(conn);
   const format = guessFormat(conn);
+  if (format === 'gemini') {
+    const endpoint = geminiModelsUrl(conn.baseUrl), names = new Set(), seen = new Set();
+    let token = '';
+    do {
+      const url = new URL(endpoint);
+      if (token) url.searchParams.set('pageToken',token);
+      const res = await fetch(url.href,{headers:headersFor(format,conn,url.href,false)});
+      if (!res.ok) throw httpError(res.status,await res.text(),url.href);
+      const data = await res.json();
+      for (const model of data.models || []) {
+        if (model.name && model.supportedGenerationMethods?.includes('generateContent')) names.add(model.name.replace(/^models\//,''));
+      }
+      token = data.nextPageToken;
+      if (seen.has(token)) break;
+      seen.add(token);
+    } while (token);
+    return [...names].sort();
+  }
   const url = modelsUrl(format, conn.baseUrl);
   let res;
   try {

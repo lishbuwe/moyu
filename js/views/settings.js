@@ -77,7 +77,7 @@ export async function render(root, { section }) {
     for (const c of conns) {
       const isDef = c.id === defId || (!defId && c === conns[0]);
       let url = '';
-      try { url = c.format === 'vertex' ? `地区 ${c.region || 'global'}` : normalizeUrl(guessFormat(c), c.baseUrl); } catch {}
+      try { url = c.format === 'vertex' ? `地区 ${c.region || 'global'}` : normalizeUrl(guessFormat(c), c.baseUrl, c); } catch {}
       wrap.append(el('div', { class: 'card' },
         el('div', { style: { fontWeight: '600' } }, connLabel(c), isDef ? el('span', { class: 'badge', text: '默认' }) : null),
         el('div', { class: 'hint', style: { marginTop: '4px', wordBreak: 'break-all' } },
@@ -370,7 +370,9 @@ export async function render(root, { section }) {
       const v = isV();
       baseField.style.display = keyField.style.display = v ? 'none' : '';
       saField.style.display = regionField.style.display = v ? '' : 'none';
-      model.placeholder = v ? '例：gemini-3.8-flash' : '例：claude-sonnet-4-6、deepseek-chat';
+      base.placeholder = fmt.value === 'gemini' ? '留空使用 Google 官方地址，或填原生中转地址' : 'https://你的中转站域名/v1';
+      key.placeholder = fmt.value === 'gemini' ? 'Google API Key 或原生中转密钥' : 'sk-…';
+      model.placeholder = fmt.value === 'gemini' ? '填写模型名，或获取模型列表' : v ? '例：gemini-3.8-flash' : '例：claude-sonnet-4-6、deepseek-chat';
       relayWarning.textContent = v && relayConfig.region === 'mainland' ? '大陆服务器连不上 Google，建议直连。' : '先在设置中保存转发服务器。关掉此开关即可恢复直连。';
       if (v) checkSa();
     };
@@ -395,9 +397,11 @@ export async function render(root, { section }) {
       }
       try {
         const f = guessFormat(cur);
-        urlHint.textContent = `实际请求：${normalizeUrl(f, cur.baseUrl)}` + (cur.format === 'auto' ? `（按${FORMAT_LABEL[f]}格式猜测，测试时会自动确认）` : '');
+        urlHint.textContent = `实际请求：${normalizeUrl(f, cur.baseUrl, cur)}` + (cur.format === 'auto' ? `（按${FORMAT_LABEL[f]}格式猜测，测试时会自动确认）` : '');
       } catch (e) { urlHint.textContent = e.message; }
     };
+    model.addEventListener('input', refreshUrl);
+    streamSw.addEventListener('change', refreshUrl);
     base.addEventListener('input', refreshUrl);
     fmt.addEventListener('change', () => { showFmt(); refreshUrl(); });
     region.addEventListener('input', refreshUrl);

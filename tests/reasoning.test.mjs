@@ -109,3 +109,29 @@ test('Vertex兼容流按顺序收集返回字段，没有返回时明确为空',
   assert.equal(result.thought,'摘要甲摘要乙'); assert.equal(result.text,'正文');
   field='';assert.equal((await streamChat(conn,{collectThought:true})).thought,'');
 });
+
+test('Gemini 原生普通与流式请求使用所选模型，并分开读取正文、思考摘要和用量',async t=>{
+  const data={candidates:[{content:{parts:[{thought:true,text:'摘要'},{text:'正文'}]},finishReason:'MAX_TOKENS'}],usageMetadata:{promptTokenCount:8,candidatesTokenCount:3,thoughtsTokenCount:2}};
+  mock(t,async(url,init)=>{
+    assert.equal(init.headers['x-goog-api-key'],'test-only');
+    const streaming=url.endsWith(':streamGenerateContent?alt=sse');
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/unit'+(streaming?':streamGenerateContent?alt=sse':':generateContent'));
+    const b=JSON.parse(init.body);assert.deepEqual(b.systemInstruction.parts,[{text:'规则'}]);
+    assert.equal(b.contents[1].role,'model');
+    return streaming?new Response('data: '+JSON.stringify(data)+'\n\n',{headers:{'Content-Type':'text/event-stream'}}):Response.json(data);
+  });
+  for(const stream of [false,true]){
+    const r=await streamChat({...conn,baseUrl:'',format:'gemini',stream},{system:'规则',collectThought:true,messages:[{role:'user',content:'开始'},{role:'assistant',content:'开场'},{role:'user',content:'继续'}]});
+    assert.equal(r.text,'正文');assert.equal(r.thought,'摘要');assert.equal(r.truncated,true);assert.equal(r.usage.completion_tokens,5);
+  }
+});
+
+test('Gemini 原生中转按页列出支持写作的模型',async t=>{
+  const {listModels}=await import('../js/api.js');
+  mock(t,async url=>{
+    const next=url.endsWith('?pageToken=next');
+    assert.ok(url.startsWith('https://unit.example/v1/models'));
+    return Response.json({models:[{name:'models/'+(next?'b':'a'),supportedGenerationMethods:['generateContent']},{name:'models/embed',supportedGenerationMethods:['embedContent']}],nextPageToken:next?'':'next'});
+  });
+  assert.deepEqual(await listModels({...conn,format:'gemini'}),['a','b']);
+});
