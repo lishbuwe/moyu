@@ -2,15 +2,15 @@
 
 import { db } from '../db.js';
 import { el, toast, sheet } from '../util.js';
-import { resolveConnection, getConnections, connLabel, go, setCurrentStory, watchStory, PLAY_KEYS } from '../state.js';
+import { resolveConnection, getConnections, getPrefs, connLabel, go, setCurrentStory, watchStory, PLAY_KEYS } from '../state.js';
 import { latestCheckpoint } from '../prompt.js';
-import { pendingChapters, runArchivist, archivePause, archiveRecovery, BATCH, archivingNow } from '../memory.js';
+import { pendingChapters, runArchivist, archivePause, archiveRecovery, archivingNow } from '../memory.js';
 import { activeEdition, editionMemory } from '../consolidation.js';
 import { openEdition } from './memory-edition.js';
 import { fmtMoney } from '../cost.js';
 import { migrateCheckpoints, projectColumns, syncStructured } from '../structured-memory.js';
 
-export const DEFAULT_EVERY = BATCH;
+export const DEFAULT_EVERY = 5;   // 默认每 5 章自动整理一次（律律 2026-11-28 定：10 章空窗太长会乱）
 
 function pathTo(nodes, nodeId) {
   const out = [];
@@ -20,10 +20,16 @@ function pathTo(nodes, nodeId) {
   return out;
 }
 
-/** 整理用的连接：故事单独指定的 → 故事的连接 */
+/** 整理用的连接：故事单独指定的 → 全局默认（设置里的“记忆整理连接”）→ 故事的连接 */
 export async function archiveConn(story) {
+  const conns = await getConnections();
   if (story.memConnId) {
-    const c = (await getConnections()).find((x) => x.id === story.memConnId);
+    const c = conns.find((x) => x.id === story.memConnId);
+    if (c) return c;
+  }
+  const globalId = getPrefs().memoryConnId;
+  if (globalId) {
+    const c = conns.find((x) => x.id === globalId);
     if (c) return c;
   }
   return resolveConnection(story);
@@ -65,9 +71,9 @@ export async function render(root, { id }) {
     const mode = el('input', { type: 'checkbox' }); mode.checked = story.memoryMode === 'full';
     mode.addEventListener('change', () => { story.memoryMode = mode.checked ? 'full' : 'layered'; saveStory(); toast(mode.checked ? '已切回整包档案' : '已启用分层记忆'); });
     const recent = el('input', { type: 'number', min: '2', max: '6', step: '1', style: { width: '90px', flex: 'none' } });
-    recent.value = String(story.recentChapters || 2);
-    recent.addEventListener('change', () => { story.recentChapters = Math.max(2, Math.min(6, Number(recent.value) || 2)); recent.value = String(story.recentChapters); saveStory(); });
-    connSel.append(el('option', { value: '' }, '跟随故事的连接'));
+    recent.value = String(story.recentChapters || 3);
+    recent.addEventListener('change', () => { story.recentChapters = Math.max(2, Math.min(6, Number(recent.value) || 3)); recent.value = String(story.recentChapters); saveStory(); });
+    connSel.append(el('option', { value: '' }, '跟随全局默认 / 故事的连接'));
     conns.forEach((c) => connSel.append(el('option', { value: c.id }, `${connLabel(c)}（${c.model}）`)));
     connSel.value = story.memConnId || '';
     const status = el('div', { class: 'hint' });

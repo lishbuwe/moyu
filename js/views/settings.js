@@ -90,6 +90,14 @@ export async function render(root, { section }) {
       ));
     }
     wrap.append(el('button', { class: 'btn block', onclick: () => editConn(null) }, '＋ 添加连接'));
+    const memConnSel = el('select', { onchange: async () => { await setPrefs({ memoryConnId: memConnSel.value }); toast(memConnSel.value ? '已设为记忆整理默认连接' : '已取消记忆整理默认连接'); } });
+    memConnSel.append(el('option', { value: '' }, '不指定（用各故事自己的连接）'));
+    for (const c of conns) memConnSel.append(el('option', { value: c.id }, `${connLabel(c)}（${c.model}）`));
+    memConnSel.value = getPrefs().memoryConnId || '';
+    wrap.append(el('div', { class: 'card' },
+      el('div', { class: 'lbl' }, '记忆整理默认连接'),
+      memConnSel,
+      el('div', { class: 'hint' }, '所有故事整理前情时优先用这个连接；某个故事在“记忆”页单独指定过连接的，以故事的为准。')));
 
     // 转发凭证仅在本机 kv；exportAll 使用白名单，不导出 relay 配置。
     const relay = await getRelay();

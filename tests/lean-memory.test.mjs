@@ -11,7 +11,7 @@ for(const n of [120,364]) for(const marked of [true,false]) test('A F H I K L '+
   f.path.at(-1).text+='蓝色笔记本。';
   const c=run(f,action);
   assert.equal(c.info.fastPath,true);
-  assert.deepEqual(c.info.continuity.kept,[n-1,n]);
+  assert.deepEqual(c.info.continuity.kept,[n-2,n-1,n]);
   assert.deepEqual(c.info.continuity.excerpts,[]);
   assert.deepEqual(c.info.retrievalHits,[]);
   assert.doesNotMatch(c.system,/ANSWER-|SECRET-A|变化节点0\b/);
@@ -47,7 +47,7 @@ test('旧档第59章的普通动作不召回第33章，明确问剑时仍能找�
   old.text = '他毫不客气地说，石中剑藏在旧塔的井底。';
   f.path.at(-1).recallRefs = [{nodeId:old.id,key:'0:0',quote:old.text,reason:'毫不客、不客气、石中剑'}];
   const ordinary = run(f, '我毫不客气地看了他一眼。');
-  assert.deepEqual(ordinary.info.continuity.kept,[58,59]);
+  assert.deepEqual(ordinary.info.continuity.kept,[57,58,59]);
   assert.doesNotMatch(ordinary.system,/旧塔的井底/);
   assert.ok(run(f,'还记得那把石中剑吗？').system.includes('旧塔的井底'));
 });

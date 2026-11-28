@@ -263,6 +263,8 @@ test('整理保存可核对的互动，手选原文能保留和取消，下一�
       {id: 'a2', role: 'assistant', kind: 'play', text: '我们在长椅旁停下。'},
       {id: 'u3', role: 'user', kind: 'play', text: '我看他一眼。'},
       {id: 'a3', role: 'assistant', kind: 'play', text: '他把伞收了起来。'},
+      {id: 'u4', role: 'user', kind: 'play', text: '我们往回走。'},
+      {id: 'a4', role: 'assistant', kind: 'play', text: '雨小了些。'},
     ];
     const context = buildContext(story, path, {budgetChars: 6000});
     assert.ok(context.system.includes('玩家保留') && context.system.includes(quote) && context.system.includes(picked));
@@ -1052,12 +1054,27 @@ test('已存档思考标签在正文和番外原文/排版阅读中隐藏，原�
   try{assert.ok(!root.textContent.includes('EXTRA_SECRET'));assert.ok(root.querySelector('.ex-bubble'));button('原文').click();assert.ok(!root.querySelector('.extra-raw').textContent.includes('EXTRA_SECRET'));assert.ok((await db.get('extras','tagged-extra')).versions[0].text.includes('EXTRA_SECRET'));}finally{end();}
 });
 
-test('旧默认整理周期调整到十章，保留关闭、自定义间隔和重新选定的一章', async () => {
-  for (const [value, explicit, expected] of [[1,false,10],[15,false,10],[15,true,15],[1,true,1],[0,false,0],[7,false,7]]) {
+test('旧默认整理周期调整到五章，保留关闭、自定义间隔和重新选定的一章', async () => {
+  for (const [value, explicit, expected] of [[1,false,5],[15,false,5],[10,false,5],[10,true,10],[15,true,15],[1,true,1],[0,false,0],[7,false,7]]) {
     await db.put('stories', { id: 'interval', memEvery: value, memEveryExplicit: explicit });
     assert.equal((await db.get('stories', 'interval')).memEvery, expected);
     assert.equal((await db.all('stories'))[0].memEvery, expected);
   }
+});
+
+test('记忆整理连接优先级：故事单独指定 > 全局默认 > 故事自己的连接', async () => {
+  const { story } = await seedStory();
+  const memView = await import('../js/views/memory.js');
+  const { setPrefs } = await import('../js/state.js');
+  await db.put('connections', { id: 'global-conn', format: 'openai', name: '全局整理', model: 'g' });
+  await db.put('connections', { id: 'story-conn', format: 'openai', name: '故事整理', model: 's' });
+  await setPrefs({ memoryConnId: 'global-conn' });
+  try {
+    assert.equal((await memView.archiveConn(story)).id, 'global-conn');
+    assert.equal((await memView.archiveConn({ ...story, memConnId: 'story-conn' })).id, 'story-conn');
+    await setPrefs({ memoryConnId: 'missing-conn' });
+    assert.equal((await memView.archiveConn({ ...story, connectionId: 'qa-conn' })).id, 'qa-conn');
+  } finally { await setPrefs({ memoryConnId: '' }); }
 });
 
 test('出戏后可以沿用正文选项或把问答转入讨论', async () => {

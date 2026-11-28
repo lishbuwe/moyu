@@ -5,7 +5,7 @@ import { db } from './db.js';
 import { DEFAULT_RULES } from './prompt.js';
 import { CURRENT_STORY_KEY } from './personal.js';
 
-const DEFAULT_PREFS = { fontSize: 17, font: 'serif', indent: true, danmuOpen: true, bodyColor:'', dialogueColor:'', dialogueTint:true };
+const DEFAULT_PREFS = { fontSize: 17, font: 'serif', indent: true, danmuOpen: true, bodyColor:'', dialogueColor:'', dialogueTint:true, memoryConnId: '' };
 let prefs = { ...DEFAULT_PREFS };
 
 export async function loadPrefs() {

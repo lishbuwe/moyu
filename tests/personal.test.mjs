@@ -33,7 +33,7 @@ test('旧连接使用默认输入预算；长档案与最近剧情不会被静�
   }));
   const ctx = buildContext(story, path, { budgetChars: 6000 });
   assert.equal(ctx.info.budgetChars, 6000);
-  assert.deepEqual(ctx.info.continuity.omitted, [1, 2, 3]);
+  assert.deepEqual(ctx.info.continuity.omitted, [1, 2]);
   assert.ok(ctx.messages.length >= 4);
   assert.ok(ctx.info.totalChars > 6000, '最后几轮太长时保留原文并交给发送前检查');
   const longMemory = buildContext({ ...story, world: '设定'.repeat(4000) }, [], { budgetChars: 6000 });

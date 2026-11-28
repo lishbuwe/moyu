@@ -64,7 +64,7 @@ const readStories = new WeakMap();
 const pendingConflicts = new WeakMap();
 const same = (a,b) => JSON.stringify(a) === JSON.stringify(b);
 function readStory(story) {
-  if (story && [1, 15].includes(Number(story.memEvery)) && !story.memEveryExplicit) story.memEvery = 10;
+  if (story && [1, 10, 15].includes(Number(story.memEvery)) && !story.memEveryExplicit) story.memEvery = 5;
   if (story) readStories.set(story,structuredClone(story));
   return story;
 }

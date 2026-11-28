@@ -210,7 +210,7 @@ export function buildContext(story, path, { budgetChars = 60000, keepRawLast = 2
   const cp = latestCheckpoint(path);
   if (cp) cp.mem = editionMemory(cp.mem, activeEdition(path));
   const compact = !!cp && Array.isArray(cp.mem.records) && story.memoryMode !== 'full';
-  const recentN = Math.max(2, Math.min(lean ? 6 : 4, Number(story.recentChapters) || 2));
+  const recentN = Math.max(2, Math.min(lean ? 6 : 4, Number(story.recentChapters) || 3));
   const continuity = story.memoryMode !== 'full' ? continuityPlan(story, path, cp, splitNames, { recentN, extra }) : null;
   const user = path.findLast(n=>n.role === 'user');
   const director = [user?.director,extra].filter(Boolean).join(' ');
