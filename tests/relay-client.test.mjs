@@ -62,6 +62,11 @@ test('401、任务过期与服务器生成失败分别报告；上游 401 仍报
   }
 });
 
+test('接回时任务已在服务器出错，仍先取回已生成的部分再报错', async (t) => {
+  setup(t, async (url) => url.includes('/stream?') ? streamResponse(sse, 200, 'error') : response('{"state":"error","error":"生成超过 15 分钟，已停止"}'));
+  await assert.rejects(streamChat(conn, { resumeJob: 'job' }), (e) => e.kind === 'relay_job' && /15 分钟/.test(e.message) && e.partial === '你好，世界');
+});
+
 test('流意外结束后查询状态，不能把未完成或错误的任务当成成功', async (t) => {
   setup(t, async (url) => url.includes('/stream?') ? streamResponse(sse, 200, 'running') : response('{"state":"error","error":"上游断开"}'));
   await assert.rejects(streamChat(conn, { resumeJob: 'job' }), (e) => e.kind === 'relay_job' && e.partial === '你好，世界');

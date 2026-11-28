@@ -95,11 +95,14 @@ export async function relayFetch(url, init, { config, resumeJob = null, relaySer
     const res = await call(config, '/jobs/' + encodeURIComponent(id) + '/stream?from=0', { signal });
     if (res.status === 404) throw new RelayError('relay_expired', '后台生成任务已过期或服务器已重启', { status: 404, hint: '服务器只保留完成后 30 分钟的结果。已收到的内容会保留，可以续写或重试。' });
     if (!res.ok) throw new RelayError('relay_network', '连不上转发服务器的生成任务', { status: res.status });
-    if (res.headers.get('X-Job-State') === 'error') {
+    if (res.headers.get('X-Job-State') === 'error' && Number(res.headers.get('X-Upstream-Status')) !== 200) {
       const job = await state();
       await res.body?.cancel();
       throw new RelayError('relay_job', job.error || '后台生成失败', { hint: '已收到的部分会保留，可以续写或重试。' });
     }
+    // 任务在服务器端出错（如超过 15 分钟）但上游已返回过内容时，不在这里拦截：
+    // 先把服务器缓存的已生成部分读完，下方 pull 结束时会按任务状态抛出 job.error，
+    // api 层会把已收到的正文存为 partial，界面能显示并可续写。
     const status = Number(res.headers.get('X-Upstream-Status'));
     if (!Number.isInteger(status) || status < 200 || status > 599) throw new RelayError('relay_network', '转发服务器返回的状态不正确');
     reader = res.body.getReader();
